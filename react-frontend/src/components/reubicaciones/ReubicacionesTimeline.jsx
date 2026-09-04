@@ -138,9 +138,13 @@ export default function ReubicacionesTimeline({ pipelineId, token, refreshTrigge
 function ReubicacionEventItem({ evt, isExpanded, toggleExpand, isLight, formatearFechaColombia }) {
     const isAutomatic = evt.origen === 'SISTEMA' || evt.origen === 'ZOHO';
     const Icon = isAutomatic ? Settings : User;
-    const iconBg = isLight 
-        ? (isAutomatic ? 'bg-amber-100 text-amber-600' : 'bg-sky-100 text-sky-600')
-        : (isAutomatic ? 'bg-amber-900/50 text-amber-400' : 'bg-sky-900/50 text-sky-400');
+    
+    let iconBg = '';
+    if (isLight) {
+        iconBg = isAutomatic ? 'bg-amber-100 text-amber-600' : 'bg-sky-100 text-sky-600';
+    } else {
+        iconBg = isAutomatic ? 'bg-amber-900/50 text-amber-400' : 'bg-sky-900/50 text-sky-400';
+    }
     
     return (
         <div className="relative pl-6 transition-all">
@@ -182,51 +186,37 @@ function ReubicacionEventItem({ evt, isExpanded, toggleExpand, isLight, formatea
                         
                         {isExpanded && (
                             <div className={`mt-2 p-3 rounded-lg text-xs overflow-x-auto grid grid-cols-2 gap-4 ${isLight ? 'bg-slate-50 border border-slate-100 shadow-inner' : 'bg-slate-900/50 border border-slate-800'}`}>
-                                <div>
-                                    <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">Valor anterior</div>
-                                    <div className="flex flex-col gap-2 mt-2">
-                                        {evt.before ? (
-                                            typeof evt.before === 'object' ? (
-                                                Object.entries(evt.before).map(([k, v]) => (
-                                                    <div key={k} className="flex flex-col">
-                                                        <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replace(/_/g, ' ')}</span>
-                                                        <span className="text-rose-600 dark:text-rose-400 whitespace-pre-wrap mt-0.5 break-words">
-                                                            {typeof v === 'object' && v !== null ? JSON.stringify(v) : (v === '' ? '(vacío)' : String(v))}
-                                                        </span>
-                                                    </div>
-                                                ))
-                                            ) : (
-                                                <span className="text-rose-600 dark:text-rose-400 break-words">{String(evt.before)}</span>
-                                            )
-                                        ) : (
-                                            <span className="italic text-slate-400">No aplica</span>
-                                        )}
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">Nuevo valor</div>
-                                    <div className="flex flex-col gap-2 mt-2">
-                                        {evt.after ? (
-                                            typeof evt.after === 'object' ? (
-                                                Object.entries(evt.after).map(([k, v]) => (
-                                                    <div key={k} className="flex flex-col">
-                                                        <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replace(/_/g, ' ')}</span>
-                                                        <span className="text-emerald-600 dark:text-emerald-400 whitespace-pre-wrap mt-0.5 break-words">
-                                                            {typeof v === 'object' && v !== null ? JSON.stringify(v) : (v === '' ? '(vacío)' : String(v))}
-                                                        </span>
-                                                    </div>
-                                                ))
-                                            ) : (
-                                                <span className="text-emerald-600 dark:text-emerald-400 break-words">{String(evt.after)}</span>
-                                            )
-                                        ) : (
-                                            <span className="italic text-slate-400">No aplica</span>
-                                        )}
-                                    </div>
-                                </div>
+                                <ReubicacionEventValue label="Valor anterior" value={evt.before} isLight={isLight} colorClass="text-rose-600 dark:text-rose-400" />
+                                <ReubicacionEventValue label="Nuevo valor" value={evt.after} isLight={isLight} colorClass="text-emerald-600 dark:text-emerald-400" />
                             </div>
                         )}
                     </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function ReubicacionEventValue({ label, value, isLight, colorClass }) {
+    return (
+        <div>
+            <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">{label}</div>
+            <div className="flex flex-col gap-2 mt-2">
+                {value ? (
+                    typeof value === 'object' ? (
+                        Object.entries(value).map(([k, v]) => (
+                            <div key={k} className="flex flex-col">
+                                <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replace(/_/g, ' ')}</span>
+                                <span className={`${colorClass} whitespace-pre-wrap mt-0.5 break-words`}>
+                                    {typeof v === 'object' && v !== null ? JSON.stringify(v) : (v === '' ? '(vacío)' : String(v))}
+                                </span>
+                            </div>
+                        ))
+                    ) : (
+                        <span className={`${colorClass} break-words`}>{String(value)}</span>
+                    )
+                ) : (
+                    <span className="italic text-slate-400">No aplica</span>
                 )}
             </div>
         </div>

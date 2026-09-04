@@ -91,6 +91,19 @@ async function getGpUserInfo(client, cedula) {
     return { existe: true, gp_user_id, puesto, sueldo_nomina, auxilio_transporte_obligatorio, auxilios_no_prestacionales };
 }
 
+function checkFaltantesYMotivo(colaboradorExiste, fecha_fin, causal, tipo_novedad) {
+    let faltantes = [];
+    if (!fecha_fin) faltantes.push('Fecha de término');
+    if (tipo_novedad === 'salida' && !causal) faltantes.push('Causal de salida');
+    
+    if (!colaboradorExiste) {
+        return 'Colaborador no encontrado en base de datos';
+    } else if (faltantes.length > 0) {
+        return `Faltan datos obligatorios: ${faltantes.join(', ')}`;
+    }
+    return null;
+}
+
 async function sincronizarConPipeline({
     cedula,
     tipo_novedad,
@@ -136,17 +149,7 @@ async function sincronizarConPipeline({
 
         const { fecha_fin, cliente_destino, causal } = computeFields(normalized, patch);
         
-        // CA-06 / CA-05: Datos incompletos
-        let faltantes = [];
-        if (!fecha_fin) faltantes.push('Fecha de término');
-        if (tipo_novedad === 'salida' && !causal) faltantes.push('Causal de salida');
-        
-        let motivoNovedadForzada = null;
-        if (!colaboradorExiste) {
-            motivoNovedadForzada = 'Colaborador no encontrado en base de datos';
-        } else if (faltantes.length > 0) {
-            motivoNovedadForzada = `Faltan datos obligatorios: ${faltantes.join(', ')}`;
-        }
+        const motivoNovedadForzada = checkFaltantesYMotivo(colaboradorExiste, fecha_fin, causal, tipo_novedad);
 
         const { estado, motivo } = calcularEstado({ 
             fecha_fin, 

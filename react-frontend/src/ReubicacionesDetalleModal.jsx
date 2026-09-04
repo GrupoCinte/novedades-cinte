@@ -420,12 +420,8 @@ function EditableField({ label, value, field, options, canModify, isLight, type 
 }
 
 function ObservacionCHPanel({ observacionActual, puedeEscribirObs, observacion, setObservacion, setError, handleGuardarObservacion, loading, isLight }) {
-    const textCapitalizedClass = 'capitalize';
     const subtleTextClass = isLight ? 'text-slate-600' : 'text-slate-400';
-    const fieldClass = isLight
-        ? 'w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 shadow-none placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-0'
-        : 'w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm text-slate-100 shadow-none placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-0';
-
+    
     return (
         <div className={`border-t border-slate-200/70 dark:border-slate-700 pt-3`}>
             <h3 className={`text-sm font-semibold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
@@ -433,63 +429,82 @@ function ObservacionCHPanel({ observacionActual, puedeEscribirObs, observacion, 
             </h3>
 
             {observacionActual ? (
-                <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/60'}`}>
-                    <div className={`flex items-center gap-2 text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-                        <span className="font-semibold">{observacionActual.actor_nombre || 'Usuario'}</span>
-                        <span className={isLight ? 'text-slate-500' : 'text-blue-400'}>({observacionActual.actor_role})</span>
-                        <span>·</span>
-                        <span>{new Date(observacionActual.fecha).toLocaleString('es-CO')}</span>
-                    </div>
-                    <p className={`text-sm mt-1 whitespace-pre-wrap ${isLight ? 'text-slate-700' : 'text-slate-300'} ${textCapitalizedClass}`}>
-                        {observacionActual.observacion}
-                    </p>
-                </div>
+                <ObservacionActualDisplay observacionActual={observacionActual} isLight={isLight} />
             ) : (
                 <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
                     <p className={`text-sm ${subtleTextClass}`}>Sin evaluación</p>
                 </div>
             )}
 
-            {puedeEscribirObs && (
-                <div className="mt-3 space-y-2">
-                    <label className={`text-xs font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                        Nueva observación
-                    </label>
-                    <textarea
-                        value={observacion}
-                        onChange={(e) => {
-                            if (e.target.value.length <= 1000) {
-                                setObservacion(e.target.value);
-                                setError('');
-                            }
-                        }}
-                        placeholder="Escribe aquí tu observación sobre el desempeño del consultor..."
-                        className={`${fieldClass} min-h-[80px] resize-y`}
-                        disabled={loading}
-                    />
-                    <div className="flex justify-end">
-                        <button
-                            onClick={handleGuardarObservacion}
-                            disabled={loading || !observacion.trim()}
-                            className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {loading ? 'Guardando...' : 'Guardar observación'}
-                        </button>
-                    </div>
-                </div>
-            )}
-            {!puedeEscribirObs && (
+            {puedeEscribirObs ? (
+                <ObservacionActionForm 
+                    observacion={observacion} 
+                    setObservacion={setObservacion} 
+                    setError={setError} 
+                    handleGuardarObservacion={handleGuardarObservacion} 
+                    loading={loading} 
+                    isLight={isLight} 
+                />
+            ) : (
                 <p className="text-xs text-gray-400 mt-1">Solo CH puede registrar observaciones</p>
             )}
         </div>
     );
 }
 
-export function DecisionAptitudPanel({ decisionActual, puedeDecidir, decision, setDecision, decisionBloqueada, decisionSeleccionada, justificacion, setJustificacion, setError, handleGuardarDecision, loading, isLight }) {
-    const subtleTextClass = isLight ? 'text-slate-600' : 'text-slate-400';
+function ObservacionActualDisplay({ observacionActual, isLight }) {
+    return (
+        <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/60'}`}>
+            <div className={`flex items-center gap-2 text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                <span className="font-semibold">{observacionActual.actor_nombre || 'Usuario'}</span>
+                <span className={isLight ? 'text-slate-500' : 'text-blue-400'}>({observacionActual.actor_role})</span>
+                <span>·</span>
+                <span>{new Date(observacionActual.fecha).toLocaleString('es-CO')}</span>
+            </div>
+            <p className={`text-sm mt-1 whitespace-pre-wrap capitalize ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                {observacionActual.observacion}
+            </p>
+        </div>
+    );
+}
+
+function ObservacionActionForm({ observacion, setObservacion, setError, handleGuardarObservacion, loading, isLight }) {
     const fieldClass = isLight
         ? 'w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 shadow-none placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-0'
         : 'w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm text-slate-100 shadow-none placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-0';
+
+    return (
+        <div className="mt-3 space-y-2">
+            <label className={`text-xs font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                Nueva observación
+            </label>
+            <textarea
+                value={observacion}
+                onChange={(e) => {
+                    if (e.target.value.length <= 1000) {
+                        setObservacion(e.target.value);
+                        setError('');
+                    }
+                }}
+                placeholder="Escribe aquí tu observación sobre el desempeño del consultor..."
+                className={`${fieldClass} min-h-[80px] resize-y`}
+                disabled={loading}
+            />
+            <div className="flex justify-end">
+                <button
+                    onClick={handleGuardarObservacion}
+                    disabled={loading || !observacion.trim()}
+                    className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {loading ? 'Guardando...' : 'Guardar observación'}
+                </button>
+            </div>
+        </div>
+    );
+}
+
+export function DecisionAptitudPanel({ decisionActual, puedeDecidir, decision, setDecision, decisionBloqueada, decisionSeleccionada, justificacion, setJustificacion, setError, handleGuardarDecision, loading, isLight }) {
+    const subtleTextClass = isLight ? 'text-slate-600' : 'text-slate-400';
 
     return (
         <div className={`border-t border-slate-200/70 dark:border-slate-700 pt-3`}>
@@ -498,72 +513,112 @@ export function DecisionAptitudPanel({ decisionActual, puedeDecidir, decision, s
             </h3>
 
             {decisionActual ? (
-                <div className={`mt-2 rounded-lg p-3 ${
-                    decisionActual.decision === 'APTO'
-                        ? isLight ? 'bg-emerald-50/90 border border-emerald-200 text-emerald-800' : 'bg-emerald-950/35 border border-emerald-800/50 text-emerald-200'
-                        : isLight ? 'bg-rose-50/90 border border-rose-200 text-rose-800' : 'bg-rose-950/35 border border-rose-800/50 text-rose-200'
-                }`}>
-                    <div className="flex items-center gap-2">
-                        {decisionActual.decision === 'APTO' ? (
-                            <CheckCircle size={16} className={isLight ? 'text-emerald-600' : 'text-emerald-400'} />
-                        ) : (
-                            <XCircle size={16} className={isLight ? 'text-rose-600' : 'text-rose-400'} />
-                        )}
-                        <span className={`font-semibold ${
-                            decisionActual.decision === 'APTO'
-                                ? isLight ? 'text-emerald-700' : 'text-emerald-300'
-                                : isLight ? 'text-rose-700' : 'text-rose-300'
-                        }`}>
-                            {decisionActual.decision}
-                        </span>
-                        <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>
-                            por {decisionActual.actor_nombre || 'Usuario'} ({decisionActual.actor_role || decisionActual.actor_rol || '—'})
-                        </span>
-                        <span className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-400'}`}>
-                            {new Date(decisionActual.fecha).toLocaleString('es-CO')}
-                        </span>
-                    </div>
-                    <p className={`text-sm mt-1 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>
-                        <span className="font-medium">Justificación:</span> {decisionActual.justificacion}
-                    </p>
-                </div>
+                <DecisionActualDisplay decisionActual={decisionActual} isLight={isLight} />
             ) : (
                 <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
                     <p className={`text-sm ${subtleTextClass}`}>Sin decisión tomada</p>
                 </div>
             )}
 
-            {puedeDecidir && (
-                <div className="mt-3 space-y-3">
-                    <div className="flex gap-4">
-                        <button
-                            type="button"
-                            onClick={() => { if (!decisionBloqueada) { setDecision('APTO'); setError(''); } }}
-                            className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                                decisionSeleccionada === 'APTO'
-                                    ? isLight ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-emerald-600/60 bg-emerald-900/30 text-emerald-300'
-                                    : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-emerald-700/50'
-                            } ${decisionBloqueada ? 'cursor-not-allowed opacity-60' : ''}`}
-                            disabled={loading || decisionBloqueada}
-                        >
-                            <CheckCircle size={16} className="mx-auto text-green-600" />
-                            <span className="text-sm font-medium">Apto</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => { if (!decisionBloqueada) { setDecision('NO_APTO'); setError(''); } }}
-                            className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                                decisionSeleccionada === 'NO_APTO'
-                                    ? isLight ? 'border-rose-400 bg-rose-100 text-rose-800 shadow-sm' : 'border-rose-600/60 bg-rose-900/30 text-rose-300'
-                                    : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-rose-300' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-rose-700/50'
-                            } ${decisionBloqueada ? 'cursor-not-allowed opacity-60' : ''}`}
-                            disabled={loading || decisionBloqueada}
-                        >
-                            <XCircle size={16} className="mx-auto text-red-600" />
-                            <span className="text-sm font-medium">No apto</span>
-                        </button>
-                    </div>
-                    {!decisionBloqueada && <>
+            {puedeDecidir ? (
+                <DecisionActionForm
+                    decision={decision}
+                    setDecision={setDecision}
+                    decisionBloqueada={decisionBloqueada}
+                    decisionSeleccionada={decisionSeleccionada}
+                    justificacion={justificacion}
+                    setJustificacion={setJustificacion}
+                    setError={setError}
+                    handleGuardarDecision={handleGuardarDecision}
+                    loading={loading}
+                    isLight={isLight}
+                />
+            ) : (
+                <p className="text-xs text-gray-400 mt-1">Solo GP puede tomar decisiones de aptitud</p>
+            )}
+        </div>
+    );
+}
+
+function DecisionActualDisplay({ decisionActual, isLight }) {
+    const isApto = decisionActual.decision === 'APTO';
+    const bgClass = isApto
+        ? isLight ? 'bg-emerald-50/90 border border-emerald-200 text-emerald-800' : 'bg-emerald-950/35 border border-emerald-800/50 text-emerald-200'
+        : isLight ? 'bg-rose-50/90 border border-rose-200 text-rose-800' : 'bg-rose-950/35 border border-rose-800/50 text-rose-200';
+    const iconColor = isApto
+        ? isLight ? 'text-emerald-600' : 'text-emerald-400'
+        : isLight ? 'text-rose-600' : 'text-rose-400';
+    const textColor = isApto
+        ? isLight ? 'text-emerald-700' : 'text-emerald-300'
+        : isLight ? 'text-rose-700' : 'text-rose-300';
+    
+    const Icon = isApto ? CheckCircle : XCircle;
+
+    return (
+        <div className={`mt-2 rounded-lg p-3 ${bgClass}`}>
+            <div className="flex items-center gap-2">
+                <Icon size={16} className={iconColor} />
+                <span className={`font-semibold ${textColor}`}>
+                    {decisionActual.decision}
+                </span>
+                <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>
+                    por {decisionActual.actor_nombre || 'Usuario'} ({decisionActual.actor_role || decisionActual.actor_rol || '—'})
+                </span>
+                <span className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-400'}`}>
+                    {new Date(decisionActual.fecha).toLocaleString('es-CO')}
+                </span>
+            </div>
+            <p className={`text-sm mt-1 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>
+                <span className="font-medium">Justificación:</span> {decisionActual.justificacion}
+            </p>
+        </div>
+    );
+}
+
+function DecisionActionForm({ decision, setDecision, decisionBloqueada, decisionSeleccionada, justificacion, setJustificacion, setError, handleGuardarDecision, loading, isLight }) {
+    const subtleTextClass = isLight ? 'text-slate-600' : 'text-slate-400';
+    const fieldClass = isLight
+        ? 'w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 shadow-none placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-0'
+        : 'w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm text-slate-100 shadow-none placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-0';
+
+    const getBtnClass = (type) => {
+        const isApto = type === 'APTO';
+        const isSelected = decisionSeleccionada === type;
+        if (isApto) {
+            return isSelected
+                ? isLight ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-emerald-600/60 bg-emerald-900/30 text-emerald-300'
+                : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-emerald-700/50';
+        } else {
+            return isSelected
+                ? isLight ? 'border-rose-400 bg-rose-100 text-rose-800 shadow-sm' : 'border-rose-600/60 bg-rose-900/30 text-rose-300'
+                : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-rose-300' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-rose-700/50';
+        }
+    };
+
+    return (
+        <div className="mt-3 space-y-3">
+            <div className="flex gap-4">
+                <button
+                    type="button"
+                    onClick={() => { if (!decisionBloqueada) { setDecision('APTO'); setError(''); } }}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${getBtnClass('APTO')} ${decisionBloqueada ? 'cursor-not-allowed opacity-60' : ''}`}
+                    disabled={loading || decisionBloqueada}
+                >
+                    <CheckCircle size={16} className="mx-auto text-green-600" />
+                    <span className="text-sm font-medium">Apto</span>
+                </button>
+                <button
+                    type="button"
+                    onClick={() => { if (!decisionBloqueada) { setDecision('NO_APTO'); setError(''); } }}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${getBtnClass('NO_APTO')} ${decisionBloqueada ? 'cursor-not-allowed opacity-60' : ''}`}
+                    disabled={loading || decisionBloqueada}
+                >
+                    <XCircle size={16} className="mx-auto text-red-600" />
+                    <span className="text-sm font-medium">No apto</span>
+                </button>
+            </div>
+            {!decisionBloqueada && (
+                <>
                     <div>
                         <label className={`text-xs font-medium ${subtleTextClass}`}>
                             Justificación <span className="text-red-500">*</span>
@@ -591,11 +646,7 @@ export function DecisionAptitudPanel({ decisionActual, puedeDecidir, decision, s
                             {loading ? 'Guardando...' : 'Guardar decisión'}
                         </button>
                     </div>
-                    </>}
-                </div>
-            )}
-            {!puedeDecidir && (
-                <p className="text-xs text-gray-400 mt-1">Solo GP puede tomar decisiones de aptitud</p>
+                </>
             )}
         </div>
     );
