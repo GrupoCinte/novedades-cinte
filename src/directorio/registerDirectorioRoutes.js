@@ -393,6 +393,11 @@ function registerDirectorioRoutes(deps) {
         offset: z.coerce.number().int().min(0).optional(),
         fecha_fin_desde: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
         fecha_fin_hasta: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
+        tipo_ficha: z.enum(['SALIDA', 'EXTENSION']).optional(),
+        cliente: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().max(500).optional()),
+        gp: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().uuid().optional()),
+        dias_restantes_desde: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().int().min(0).optional()),
+        dias_restantes_hasta: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().int().min(0).optional()),
         apto_no_apto: z.enum(['APTO', 'NO_APTO', 'SIN_DECISION']).optional(),
         estado: z.preprocess((val) => {
             if (val == null || val === '') return undefined;
@@ -458,7 +463,8 @@ function registerDirectorioRoutes(deps) {
             puesto: row.puesto,
             salario: row.salario != null ? Number(row.salario) : null,
             moneda_salario: monedaSalario,
-            auxilios: row.auxilios != null ? Number(row.auxilios) : null,
+            auxilios: row.auxilios != null ? Number(row.auxilios) : row.auxilio != null ? Number(row.auxilio) : null,
+            auxilio: row.auxilios != null ? Number(row.auxilios) : row.auxilio != null ? Number(row.auxilio) : null,
             moneda_auxilios: monedaAuxilios,
             tipo_ficha: row.tipo_ficha,
             tarifa_cliente: row.tarifa_cliente != null ? Number(row.tarifa_cliente) : null,
@@ -1052,14 +1058,9 @@ function registerDirectorioRoutes(deps) {
                     c.cliente AS cliente_actual,
                     COALESCE(rp.puesto, c.puesto) AS puesto,
                     COALESCE(rp.salario, c.sueldo_nomina) AS salario,
-                    COALESCE(rp.auxilios, 
-                        CASE 
-                            WHEN c.auxilio_transporte_obligatorio IS NULL AND c.auxilios_no_prestacionales IS NULL THEN NULL 
-                            ELSE (COALESCE(c.auxilio_transporte_obligatorio, 0) + COALESCE(c.auxilios_no_prestacionales, 0)) 
-                        END
-                    ) AS auxilios,
-                    c.tarifa_cliente,
-                    c.montos_divisa
+                    c.auxilio_transporte_obligatorio AS auxilio_transporte,
+                    c.auxilios_no_prestacionales AS auxilios_no_prestacionales,
+                    (COALESCE(c.auxilio_transporte_obligatorio, 0) + COALESCE(c.auxilios_no_prestacionales, 0)) AS auxilios
                 FROM reubicaciones_pipeline rp
                 INNER JOIN colaboradores c ON c.cedula = rp.cedula`;
 
@@ -1120,6 +1121,30 @@ function registerDirectorioRoutes(deps) {
 
             appendAptitudFilter(whereParts, whereParams, d.apto_no_apto);
 
+            const tipoFicha = textOrNull(d.tipo_ficha);
+            if (tipoFicha) {
+                whereParts.push(`rp.tipo_ficha = $${whereParams.length + 1}`);
+                whereParams.push(tipoFicha);
+            }
+
+            const cliente = textOrNull(d.cliente);
+            if (cliente) {
+                whereParts.push(`lower(btrim(c.cliente)) = lower(btrim($${whereParams.length + 1}))`);
+                whereParams.push(cliente);
+            }
+
+            const gp = textOrNull(d.gp);
+            if (gp) {
+                whereParts.push(`EXISTS (
+                    SELECT 1
+                    FROM clientes_lideres cl
+                    WHERE cl.activo = TRUE
+                      AND lower(btrim(cl.cliente)) = lower(btrim(c.cliente))
+                      AND cl.gp_user_id = $${whereParams.length + 1}::uuid
+                )`);
+                whereParams.push(gp);
+            }
+
             whereParts.push(`rp.estado IS DISTINCT FROM 'Cerrado'`);
 
             const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
@@ -1153,14 +1178,16 @@ function registerDirectorioRoutes(deps) {
                 FROM reubicaciones_pipeline rp
                 INNER JOIN colaboradores c ON c.cedula = rp.cedula`;
 
+            const hasDaysFilter = d.dias_restantes_desde != null || d.dias_restantes_hasta != null;
             const countSql = `SELECT COUNT(*)::int AS total ${fromJoin} ${whereSql}`;
             const cRes = await pool.query(countSql, whereParams);
-            const total = cRes.rows[0]?.total ?? 0;
+            const databaseTotal = cRes.rows[0]?.total ?? 0;
 
             const limIdx = whereParams.length + 1;
             const offIdx = whereParams.length + 2;
-            const listSql = `${selectFields} ${whereSql} ${orderSql} LIMIT $${limIdx}::int OFFSET $${offIdx}::int`;
-            const listParams = [...whereParams, limit, offset];
+            const paginationSql = hasDaysFilter ? '' : ` LIMIT $${limIdx}::int OFFSET $${offIdx}::int`;
+            const listSql = `${selectFields} ${whereSql} ${orderSql}${paginationSql}`;
+            const listParams = hasDaysFilter ? whereParams : [...whereParams, limit, offset];
             const listRes = await pool.query(listSql, listParams);
             const rows = listRes.rows;
             
@@ -1190,9 +1217,20 @@ function registerDirectorioRoutes(deps) {
                 };
             });
 
+            const filteredRows = hasDaysFilter
+                ? mappedRows.filter((row) => {
+                    if (row.dias_restantes == null) return false;
+                    if (d.dias_restantes_desde != null && row.dias_restantes < d.dias_restantes_desde) return false;
+                    if (d.dias_restantes_hasta != null && row.dias_restantes > d.dias_restantes_hasta) return false;
+                    return true;
+                })
+                : mappedRows;
+            const total = hasDaysFilter ? filteredRows.length : databaseTotal;
+            const responseItems = hasDaysFilter ? filteredRows.slice(offset, offset + limit) : filteredRows;
+
             return res.json({
                 ok: true,
-                items: mappedRows,
+                items: responseItems,
                 total,
                 limit,
                 offset
@@ -1200,6 +1238,35 @@ function registerDirectorioRoutes(deps) {
         } catch (e) {
             console.error('GET directorio reubicaciones-pipeline:', e);
             return res.status(500).json({ ok: false, error: 'No se pudo listar reubicaciones.' });
+        }
+    });
+
+    app.get('/api/directorio/reubicaciones-filtros', ...reubReadGuard, async (req, res) => {
+        try {
+            const role = normalizeRoleOrNull(req.user?.role);
+            let clientes;
+            let gpItems;
+            if (role === 'gp') {
+                const gpId = await resolveGpInternalUserIdForScope({
+                    gpEmail: String(req.user?.email || '').trim().toLowerCase(),
+                    gpUserId: parseUuidActor(req.user?.sub)
+                });
+                clientes = await listAssignedClientesForGpUserId(gpId);
+                gpItems = gpId ? [{ id: gpId, full_name: req.user?.full_name || req.user?.email || 'GP' }] : [];
+            } else {
+                const clientRows = await pool.query(
+                    `SELECT DISTINCT cliente
+                     FROM clientes_lideres
+                     WHERE activo = TRUE AND NULLIF(BTRIM(cliente), '') IS NOT NULL
+                     ORDER BY cliente ASC`
+                );
+                clientes = (clientRows.rows || []).map((row) => row.cliente);
+                gpItems = typeof listGpUsersForDirectorio === 'function' ? await listGpUsersForDirectorio() : [];
+            }
+            return res.json({ ok: true, items: clientes.map((cliente) => ({ cliente })), gpItems });
+        } catch (e) {
+            console.error('GET directorio reubicaciones-filtros:', e);
+            return res.status(500).json({ ok: false, error: 'No se pudieron cargar los filtros de reubicaciones.' });
         }
     });
 

@@ -1,4 +1,4 @@
-import { Pencil, Trash2, CheckCircle, XCircle } from 'lucide-react';
+import { Pencil, CheckCircle, XCircle } from 'lucide-react';
 import MonitorGlassModalShell from './shared/modals/MonitorGlassModalShell.jsx';
 import { useModuleTheme } from './moduleTheme.js';
 import { buildMonitorGlassModalTheme } from './shared/modals/monitorGlassModalTheme.js';
@@ -24,7 +24,7 @@ function formatMontoDisplay(val, currencyCode = 'COP') {
     return `$ ${formatMoneyAmountOnly(num, ccy)}`;
 }
 
-export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, onEdit, onDelete, onUpdateInline }) {
+export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, onUpdateInline }) {
     const { isLight } = useModuleTheme();
     const T = buildMonitorGlassModalTheme(isLight);
 
@@ -298,7 +298,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                         </div>
                         <div className={`${infoCardClass} sm:col-span-2`}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Estado</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.estado || row.semaforo || '—'}</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.estado || '—'}</p>
                             {(String(row.estado || '').startsWith('Con novedad') || row.motivo) && (
                                 <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">
                                     <strong>Razón:</strong> {row.motivo || 'Faltan datos o inconsistencia en la ficha'}

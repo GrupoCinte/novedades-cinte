@@ -20,7 +20,7 @@ export function buildConsultoresChipLabel({ activo, tipoContrato, pageSize }) {
     return parts.join(' · ');
 }
 
-export function buildReubicacionesChipLabel({ q, fechaFinDesde, fechaFinHasta, estado, aptoNoApto, tipoEvento, actor, pageSize }) {
+export function buildReubicacionesChipLabel({ q, fechaFinDesde, fechaFinHasta, estado, aptoNoApto, tipoEvento, actor, tipoFicha, cliente, gp, diasRestantesDesde, diasRestantesHasta, pageSize }) {
     const n = countActiveFilters([
         [q, String(q || '').trim()],
         [fechaFinDesde, String(fechaFinDesde || '').trim()],
@@ -28,7 +28,12 @@ export function buildReubicacionesChipLabel({ q, fechaFinDesde, fechaFinHasta, e
         [estado, String(estado || '').trim()],
         [aptoNoApto, String(aptoNoApto || '').trim()],
         [tipoEvento, String(tipoEvento || '').trim()],
-        [actor, String(actor || '').trim()]
+        [actor, String(actor || '').trim()],
+        [tipoFicha, String(tipoFicha || '').trim()],
+        [cliente, String(cliente || '').trim()],
+        [gp, String(gp || '').trim()],
+        [diasRestantesDesde, String(diasRestantesDesde || '').trim()],
+        [diasRestantesHasta, String(diasRestantesHasta || '').trim()]
     ]);
     if (n === 0) return `Todos · ${pageSize} filas`;
     return `${n} filtro${n === 1 ? '' : 's'} · ${pageSize} filas`;
@@ -62,6 +67,11 @@ export const REUBICACIONES_FILTER_DEFAULTS = {
     aptoNoApto: '',
     tipoEvento: '',
     actor: '',
+    tipoFicha: '',
+    cliente: '',
+    gp: '',
+    diasRestantesDesde: '',
+    diasRestantesHasta: '',
     pageSize: 20
 };
 export const MALLAS_FILTER_DEFAULTS = { cliente: '' };
