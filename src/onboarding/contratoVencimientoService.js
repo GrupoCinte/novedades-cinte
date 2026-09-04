@@ -12,12 +12,11 @@ const {
 } = require('./contratoVencimiento');
 
 const TIPO_SQL = `
-    NOT (translate(lower(coalesce(cc.tipo_contrato, '')), 'áéíóúüñ', 'aeiouun') LIKE '%indefinido%')
-    AND (
+    (
         translate(lower(coalesce(cc.tipo_contrato, '')), 'áéíóúüñ', 'aeiouun')
-            ~ '(ops|fijo|obra|labor|prestacion|honorario)'
+            ~ '(ops|fijo|obra|labor|prestacion|honorario|indefinido)'
         OR translate(lower(coalesce(cc.esquema_contrato, '')), 'áéíóúüñ', 'aeiouun')
-            ~ '(ops|prestacion|honorario|cuenta propia)'
+            ~ '(ops|prestacion|honorario|cuenta propia|indefinido)'
     )
 `;
 

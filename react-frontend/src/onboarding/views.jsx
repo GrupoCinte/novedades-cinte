@@ -692,7 +692,6 @@ export function PersonalView({
                     cedula={selectedCedula}
                     onClose={() => setSelectedCedula(null)}
                     onSaved={() => {
-                        setSelectedCedula(null);
                         load();
                     }}
                 />

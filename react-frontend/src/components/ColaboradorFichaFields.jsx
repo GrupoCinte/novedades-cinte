@@ -4,6 +4,7 @@ import {
     CO_TABS,
     getFieldMeta
 } from '../constants/colaboradoresConsultorFields.js';
+import { FICHA_HIDDEN_KEYS } from '../onboarding/fichaCatalogos.js';
 import {
     currencyNarrowSymbol,
     formatMoneyAmountOnly,
@@ -84,9 +85,18 @@ export default function ColaboradorFichaFields({
     );
 
     const sections = useMemo(() => {
-        if (!activeTab) return CO_CONSULTOR_SECTIONS;
-        const allowed = new Set(activeTab.sectionTitles || []);
-        return CO_CONSULTOR_SECTIONS.filter((sec) => allowed.has(sec.title));
+        const hidden = new Set(FICHA_HIDDEN_KEYS);
+        const source = (() => {
+            if (!activeTab) return CO_CONSULTOR_SECTIONS;
+            const allowed = new Set(activeTab.sectionTitles || []);
+            return CO_CONSULTOR_SECTIONS.filter((sec) => allowed.has(sec.title));
+        })();
+        return source
+            .map((sec) => ({
+                ...sec,
+                keys: (sec.keys || []).filter((key) => !hidden.has(key))
+            }))
+            .filter((sec) => sec.keys.length > 0);
     }, [activeTab]);
 
     const showMaster = activeTab ? activeTab.masterFields === true : true;
@@ -161,30 +171,23 @@ export default function ColaboradorFichaFields({
                         </select>
                     </div>
                     <div>
-                        <label className={`block text-xs ${labelMuted} mb-1`}>Líder</label>
-                        <select
+                        <label className={`block text-xs ${labelMuted} mb-1`}>Gerente de servicios CINTE</label>
+                        <input
                             className={`w-full ${field}`}
-                            value={coForm.lider_catalogo || ''}
-                            onChange={(e) => set({ lider_catalogo: e.target.value })}
-                            disabled={readOnly || !coForm.cliente || liderLoading}
-                        >
-                            <option value="">
-                                {!coForm.cliente
-                                    ? 'Elige un cliente primero'
-                                    : liderLoading
-                                      ? 'Cargando…'
-                                      : '— Seleccionar —'}
-                            </option>
-                            {liderOptions.map((l) => (
-                                <option key={l} value={l}>
-                                    {l}
-                                </option>
-                            ))}
-                        </select>
+                            value={coForm.gerente_servicio || ''}
+                            onChange={(e) => set({ gerente_servicio: e.target.value })}
+                            disabled={readOnly}
+                        />
                     </div>
-                    <p className={`text-xs ${labelMuted} sm:col-span-2`}>
-                        El GP se toma automáticamente del par cliente–líder en el catálogo (si está definido).
-                    </p>
+                    <div>
+                        <label className={`block text-xs ${labelMuted} mb-1`}>Comercial</label>
+                        <input
+                            className={`w-full ${field}`}
+                            value={coForm.comercial || ''}
+                            onChange={(e) => set({ comercial: e.target.value })}
+                            disabled={readOnly}
+                        />
+                    </div>
                 </div>
             ) : null}
 
@@ -205,6 +208,37 @@ export default function ColaboradorFichaFields({
                         </h3>
                         <div className="grid gap-3 sm:grid-cols-2">
                             {sec.keys.map((key) => {
+                                if (key === 'lider_catalogo') {
+                                    return (
+                                        <div key={key} className="sm:col-span-2">
+                                            <label className={`block text-xs ${labelMuted} mb-1`}>
+                                                Líder del cliente
+                                            </label>
+                                            <select
+                                                className={`w-full ${field}`}
+                                                value={coForm.lider_catalogo || ''}
+                                                onChange={(e) => set({ lider_catalogo: e.target.value })}
+                                                disabled={readOnly || !coForm.cliente || liderLoading}
+                                            >
+                                                <option value="">
+                                                    {!coForm.cliente
+                                                        ? 'Elige un cliente primero'
+                                                        : liderLoading
+                                                          ? 'Cargando…'
+                                                          : '— Seleccionar —'}
+                                                </option>
+                                                {liderOptions.map((l) => (
+                                                    <option key={l} value={l}>
+                                                        {l}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <p className={`mt-1 text-xs ${labelMuted}`}>
+                                                El GP se toma del par cliente–líder en el catálogo, si está definido.
+                                            </p>
+                                        </div>
+                                    );
+                                }
                                 const meta = getFieldMeta(key);
                                 if (!meta) return null;
                                 const computedVal =
