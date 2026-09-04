@@ -12,6 +12,7 @@ import {
 import { nativeCalendarOnlyInputProps } from '../nativeCalendarOnlyInputProps.js';
 import { useModuleTheme } from '../moduleTheme.js';
 import { computeContratoEconomia, formatRentabilidadPct } from '../onboarding/contratoCostoCalc.js';
+import { edadEnAniosHastaHoy, optionsWithCurrent } from '../onboarding/fichaCatalogos.js';
 
 /**
  * Componente presentacional puro con el formulario completo de ficha de colaborador
@@ -36,7 +37,8 @@ const COMPUTED_READONLY_KEYS = new Set([
     'segundo_contacto_familiar',
     'costo_empresa',
     'utilidad',
-    'rt_aprox'
+    'rt_aprox',
+    'edad'
 ]);
 
 export default function ColaboradorFichaFields({
@@ -54,7 +56,8 @@ export default function ColaboradorFichaFields({
     hideIdentityFields = false
 }) {
     const mt = useModuleTheme();
-    const { field, labelMuted } = mt;
+    const { field, labelMuted, isLight } = mt;
+    const dateSchemeStyle = { colorScheme: isLight ? 'light' : 'dark' };
 
     const coForm = value || {};
     const set = (patch) => {
@@ -228,7 +231,24 @@ export default function ColaboradorFichaFields({
                                 const computedHint =
                                     key === 'costo_empresa' || key === 'utilidad' || key === 'rt_aprox';
                                 let control;
-                                if (meta.kind === 'bool') {
+                                if (meta.kind === 'select') {
+                                    const opts = optionsWithCurrent(meta.options || [], val);
+                                    control = (
+                                        <select
+                                            className={`w-full ${field}`}
+                                            value={val}
+                                            onChange={(e) => set({ [key]: e.target.value })}
+                                            disabled={fieldDisabled}
+                                        >
+                                            <option value="">— Seleccionar —</option>
+                                            {opts.map((opt) => (
+                                                <option key={opt} value={opt}>
+                                                    {opt}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    );
+                                } else if (meta.kind === 'bool') {
                                     control = (
                                         <select
                                             className={`w-full ${field}`}
@@ -247,8 +267,19 @@ export default function ColaboradorFichaFields({
                                             {...nativeCalendarOnlyInputProps}
                                             type="date"
                                             className={`w-full ${field}`}
+                                            style={dateSchemeStyle}
                                             value={val}
-                                            onChange={(e) => set({ [key]: e.target.value })}
+                                            onChange={(e) => {
+                                                const next = e.target.value;
+                                                if (key === 'fecha_nacimiento') {
+                                                    set({
+                                                        fecha_nacimiento: next,
+                                                        edad: edadEnAniosHastaHoy(next)
+                                                    });
+                                                } else {
+                                                    set({ [key]: next });
+                                                }
+                                            }}
                                             disabled={fieldDisabled}
                                         />
                                     );

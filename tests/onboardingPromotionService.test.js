@@ -54,6 +54,75 @@ describe('createOnboardingPromotionService.promoteToColaborador', () => {
         assert.equal(lastStaging.params[0], 'aplicado');
     });
 
+    it('Staff CINTE (cliente CINTE) se inserta como staff', async () => {
+        const insertParams = [];
+        const client = {
+            query: async (sql, params) => {
+                if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+                if (sql.includes('INSERT INTO onboarding_staging')) {
+                    return { rows: [{ id: '00000000-0000-4000-8000-000000000002' }] };
+                }
+                if (sql.includes('INSERT INTO colaboradores')) {
+                    insertParams.push(params);
+                    return { rows: [{ cedula: params[0] }] };
+                }
+                if (sql.includes('UPDATE onboarding_staging')) return { rows: [] };
+                if (sql.includes('UPDATE colaboradores SET')) return { rows: [] };
+                return { rows: [] };
+            },
+            release() {}
+        };
+        const pool = { connect: async () => client, query: client.query };
+        const svc = createOnboardingPromotionService({ pool });
+        const result = await svc.promoteToColaborador(
+            {
+                cedula: '80012345',
+                nombre: 'Staff Prueba Cinte',
+                cliente: 'CINTE',
+                status: 'Finalizado'
+            },
+            'dynamo_stream',
+            { eventType: 'MODIFY' }
+        );
+        assert.equal(result.ok, true);
+        assert.equal(insertParams[0][15], 'staff');
+    });
+
+    it('CINTE gana aunque el payload traiga tipo consultor', async () => {
+        const insertParams = [];
+        const client = {
+            query: async (sql, params) => {
+                if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+                if (sql.includes('INSERT INTO onboarding_staging')) {
+                    return { rows: [{ id: '00000000-0000-4000-8000-000000000003' }] };
+                }
+                if (sql.includes('INSERT INTO colaboradores')) {
+                    insertParams.push(params);
+                    return { rows: [{ cedula: params[0] }] };
+                }
+                if (sql.includes('UPDATE onboarding_staging')) return { rows: [] };
+                if (sql.includes('UPDATE colaboradores SET')) return { rows: [] };
+                return { rows: [] };
+            },
+            release() {}
+        };
+        const pool = { connect: async () => client, query: client.query };
+        const svc = createOnboardingPromotionService({ pool });
+        const result = await svc.promoteToColaborador(
+            {
+                cedula: '80099999',
+                nombre: 'Consultor Mal Clasificado',
+                cliente: 'Grupo CINTE',
+                tipo_personal: 'consultor',
+                status: 'Finalizado'
+            },
+            'dynamo_stream',
+            { eventType: 'MODIFY' }
+        );
+        assert.equal(result.ok, true);
+        assert.equal(insertParams[0][15], 'staff');
+    });
+
     it('sigue exigiendo cedula y nombre en estado terminal', async () => {
         const pool = createMockPool();
         const svc = createOnboardingPromotionService({ pool });

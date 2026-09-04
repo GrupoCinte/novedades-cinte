@@ -13,6 +13,8 @@
  * - GET  /api/onboarding/reportes/rotacion
  * - GET  /api/onboarding/staging — auditoría del buzón (solo super_admin).
  * - PATCH /api/onboarding/personal/:cedula/baja — marca baja con motivo legal del catálogo.
+ * - PATCH /api/onboarding/personal/:cedula/cancelar — cancelado manual (no baja).
+ * - GET  /api/onboarding/cancelados — cancelados manuales (no Bajas).
  *
  * RBAC: el panel `onboarding` se controla por `src/rbac.js`. GP queda acotado a sus clientes
  * (`gp_user_id`) en todas las lecturas; admin_ch/team_ch ven todo; nómina solo lectura.
@@ -36,7 +38,9 @@ const {
     isAllowedExtranjerosSort
 } = require('./onboardingListSort');
 const { normalizeColabTextPatch } = require('./chTextNormalize');
+const { inferTipoPersonal } = require('./tipoPersonalInfer');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
+const { applyCancelarColaborador } = require('./cancelarColaborador');
 const {
     CONTRATOS_VIGENTES_COUNT_SQL,
     attachContratosToItem,
@@ -58,6 +62,12 @@ const {
 } = require('./contratoVencimientoService');
 const { gpScopePorVencer, tokenEquals } = require('./contratoVencimiento');
 const { FICHA_NACIO_SQL } = require('./contratoDashboardCiclo');
+const {
+    optionalStringList,
+    optionalEnumList,
+    applyLowerInFilter,
+    applyExactInFilter
+} = require('./personalListFilters');
 
 /**
  * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
@@ -305,20 +315,20 @@ function registerOnboardingRoutes(deps) {
      * Listados de personal (consultores activos, staff, sena, bajas, etc).
      * ========================================================================= */
     const personalQuerySchema = z.object({
-        tipo_personal: z.enum(['consultor', 'staff', 'sena', 'alianza']).optional(),
+        tipo_personal: optionalEnumList(['consultor', 'staff', 'sena', 'alianza']),
         activo: z.enum(['true', 'false', 'all']).optional(),
-        pais: z.string().max(80).optional(),
-        cliente: z.string().max(500).optional(),
-        empleador: z.string().max(200).optional(),
-        puesto: z.string().max(200).optional(),
-        modalidad_trabajo: z.string().max(120).optional(),
-        sexo: z.string().max(80).optional(),
-        tipo_contrato: z.string().max(200).optional(),
-        profesion: z.string().max(400).optional(),
-        tipo_identificacion: z.string().max(200).optional(),
-        departamento: z.string().max(200).optional(),
-        ciudad: z.string().max(200).optional(),
-        motivo_baja: z.string().max(200).optional(),
+        pais: optionalStringList(80),
+        cliente: optionalStringList(500),
+        empleador: optionalStringList(200),
+        puesto: optionalStringList(200),
+        modalidad_trabajo: optionalStringList(120),
+        sexo: optionalStringList(80),
+        tipo_contrato: optionalStringList(200),
+        profesion: optionalStringList(400),
+        tipo_identificacion: optionalStringList(200),
+        departamento: optionalStringList(200),
+        ciudad: optionalStringList(200),
+        motivo_baja: optionalStringList(200),
         fecha_ingreso_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         fecha_ingreso_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         fecha_baja_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -351,63 +361,24 @@ function registerOnboardingRoutes(deps) {
         const params = [];
         let p = 1;
 
-        if (filters.tipo_personal) {
-            params.push(filters.tipo_personal);
-            where.push(`c.tipo_personal = $${p++}`);
-        }
+        p = applyExactInFilter('c.tipo_personal', filters.tipo_personal, params, where, p);
         if (filters.activo === 'true') {
             where.push(`c.activo = TRUE`);
         } else if (filters.activo === 'false') {
             where.push(`c.activo = FALSE`);
         }
-        if (filters.pais) {
-            params.push(String(filters.pais).trim());
-            where.push(`LOWER(TRIM(c.pais)) = LOWER($${p++})`);
-        }
-        if (filters.cliente) {
-            params.push(String(filters.cliente).trim());
-            where.push(`LOWER(TRIM(c.cliente)) = LOWER($${p++})`);
-        }
-        if (filters.empleador) {
-            params.push(String(filters.empleador).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.empleador, ''))) = LOWER($${p++})`);
-        }
-        if (filters.puesto) {
-            params.push(String(filters.puesto).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.puesto, ''))) = LOWER($${p++})`);
-        }
-        if (filters.modalidad_trabajo) {
-            params.push(String(filters.modalidad_trabajo).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.modalidad_trabajo, ''))) = LOWER($${p++})`);
-        }
-        if (filters.sexo) {
-            params.push(String(filters.sexo).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.sexo, ''))) = LOWER($${p++})`);
-        }
-        if (filters.tipo_contrato) {
-            params.push(String(filters.tipo_contrato).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.tipo_contrato, ''))) = LOWER($${p++})`);
-        }
-        if (filters.profesion) {
-            params.push(String(filters.profesion).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.profesion, ''))) = LOWER($${p++})`);
-        }
-        if (filters.tipo_identificacion) {
-            params.push(String(filters.tipo_identificacion).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.tipo_identificacion, ''))) = LOWER($${p++})`);
-        }
-        if (filters.departamento) {
-            params.push(String(filters.departamento).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.departamento, ''))) = LOWER($${p++})`);
-        }
-        if (filters.ciudad) {
-            params.push(String(filters.ciudad).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.ciudad, ''))) = LOWER($${p++})`);
-        }
-        if (filters.motivo_baja) {
-            params.push(String(filters.motivo_baja).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.motivo_baja, ''))) = LOWER($${p++})`);
-        }
+        p = applyLowerInFilter('c.pais', filters.pais, params, where, p);
+        p = applyLowerInFilter('c.cliente', filters.cliente, params, where, p);
+        p = applyLowerInFilter('c.empleador', filters.empleador, params, where, p);
+        p = applyLowerInFilter('c.puesto', filters.puesto, params, where, p);
+        p = applyLowerInFilter('c.modalidad_trabajo', filters.modalidad_trabajo, params, where, p);
+        p = applyLowerInFilter('c.sexo', filters.sexo, params, where, p);
+        p = applyLowerInFilter('c.tipo_contrato', filters.tipo_contrato, params, where, p);
+        p = applyLowerInFilter('c.profesion', filters.profesion, params, where, p);
+        p = applyLowerInFilter('c.tipo_identificacion', filters.tipo_identificacion, params, where, p);
+        p = applyLowerInFilter('c.departamento', filters.departamento, params, where, p);
+        p = applyLowerInFilter('c.ciudad', filters.ciudad, params, where, p);
+        p = applyLowerInFilter('c.motivo_baja', filters.motivo_baja, params, where, p);
         if (filters.fecha_ingreso_desde) {
             params.push(filters.fecha_ingreso_desde);
             where.push(`c.fecha_ingreso >= $${p++}::date`);
@@ -450,6 +421,11 @@ function registerOnboardingRoutes(deps) {
                 `(c.activo = FALSE OR c.motivo_baja IS NOT NULL)`
             );
         }
+        if (filters._es_cancelado) {
+            where.push(`c.cancelado IS TRUE`);
+        } else {
+            where.push(`c.cancelado IS NOT TRUE`);
+        }
 
         // Scope GP
         const scopeApplied = applyScopePlaceholders(scope.where, p, scope);
@@ -487,7 +463,8 @@ function registerOnboardingRoutes(deps) {
                 c.pais, c.empleador, c.puesto, c.cliente_proyecto,
                 c.tipo_contrato, c.descriptivo_puesto_sig,
                 c.fecha_ingreso, c.fecha_termino, c.fecha_baja_efectiva,
-                c.motivo_baja, c.termino, c.tiempo_permanencia_meses,
+                c.motivo_baja, c.cancelado, c.fecha_cancelacion, c.obs_cancelacion,
+                c.termino, c.tiempo_permanencia_meses,
                 c.whatsapp_number, c.onboarding_status, c.onboarding_completed_at,
                 c.created_at, c.updated_at,
                 ${vigentesSql} AS contratos_vigentes_count
@@ -507,6 +484,9 @@ function registerOnboardingRoutes(deps) {
     );
     app.get('/api/onboarding/bajas', ...readGuard, (req, res) =>
         listColaboradoresOnboarding(req, res, { activo: 'all', _es_baja: true })
+    );
+    app.get('/api/onboarding/cancelados', ...readGuard, (req, res) =>
+        listColaboradoresOnboarding(req, res, { activo: 'all', _es_cancelado: true })
     );
     app.get('/api/onboarding/sena', ...readGuard, (req, res) =>
         listColaboradoresOnboarding(req, res, { tipo_personal: 'sena', _fecha_ingreso_no_futura: true })
@@ -730,9 +710,29 @@ function registerOnboardingRoutes(deps) {
             if (!String(patchToApply.cliente || '').trim()) {
                 delete patchToApply.cliente;
             }
+            const tipoTrasCinte = inferTipoPersonal({
+                tipo_personal: patchToApply.tipo_personal || existed.tipo_personal,
+                cliente: patchToApply.cliente || existed.cliente,
+                tipo_contrato: patchToApply.tipo_contrato || existed.tipo_contrato,
+                puesto: patchToApply.puesto || existed.puesto,
+                subtipo_sena: patchToApply.subtipo_sena || existed.subtipo_sena
+            });
+            if (tipoTrasCinte && tipoTrasCinte !== existed.tipo_personal) {
+                await pool.query(
+                    `UPDATE colaboradores
+                     SET tipo_personal = $2, updated_at = NOW()
+                     WHERE cedula = $1 AND tipo_personal IS DISTINCT FROM $2`,
+                    [cedula, tipoTrasCinte]
+                );
+            }
             const updated = await updateColaboradorByCedula(cedula, patchToApply);
             if (!updated) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
+            }
+            if (tipoTrasCinte) updated.tipo_personal = tipoTrasCinte;
+            const onlyKeys = Object.keys(patchToApply);
+            if (tipoTrasCinte && tipoTrasCinte !== existed.tipo_personal) {
+                onlyKeys.push('tipo_personal');
             }
             await recordFichaDiff(pool, {
                 cedula,
@@ -740,7 +740,7 @@ function registerOnboardingRoutes(deps) {
                 after: updated,
                 actor,
                 origen: 'ficha_patch',
-                onlyKeys: Object.keys(patchToApply)
+                onlyKeys
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
@@ -790,7 +790,7 @@ function registerOnboardingRoutes(deps) {
                 return res.status(409).json({ ok: false, error: 'Ya existe un colaborador con esa cédula.' });
             }
             const normalizedCreate = normalizeColabTextPatch(parsed.data);
-            const tipoPersonal = normalizedCreate.tipo_personal || 'consultor';
+            const tipoPersonal = inferTipoPersonal(normalizedCreate);
             await pool.query(
                 `INSERT INTO colaboradores (cedula, nombre, activo, tipo_personal, created_at, updated_at)
                  VALUES ($1, $2, TRUE, $3, NOW(), NOW())`,
@@ -904,6 +904,49 @@ function registerOnboardingRoutes(deps) {
             console.error('[Onboarding baja]', e.message);
             const status = Number.isInteger(e?.status) ? e.status : 500;
             return res.status(status).json({ ok: false, error: e.message || 'Error al marcar baja' });
+        }
+    });
+
+    const cancelarSchema = z.object({
+        observaciones: z.string().max(2000).optional().nullable()
+    });
+
+    app.patch('/api/onboarding/personal/:cedula/cancelar', ...writeGuard, async (req, res) => {
+        const cedula = String(req.params.cedula || '').replace(/\D+/g, '');
+        if (!cedula) {
+            return res.status(400).json({ ok: false, error: 'cedula inválida' });
+        }
+        const parsed = cancelarSchema.safeParse(req.body || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
+        }
+        try {
+            const beforeQ = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
+            const result = await applyCancelarColaborador(pool, cedula, {
+                observaciones: parsed.data.observaciones
+            });
+            const afterQ = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
+            await recordFichaDiff(pool, {
+                cedula,
+                before: beforeQ.rows[0] || {},
+                after: afterQ.rows[0] || {},
+                actor: actorFromUser(req.user),
+                origen: 'cancelado',
+                onlyKeys: ['cancelado', 'activo', 'obs_cancelacion']
+            });
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user && req.user.sub),
+                actorRole: req.user && req.user.role,
+                action: 'colaborador.cancelado',
+                entityType: 'colaborador',
+                entityId: null,
+                metadata: { cedula, observaciones: parsed.data.observaciones || null }
+            });
+            return res.json({ ok: true, item: result.item });
+        } catch (e) {
+            console.error('[Onboarding cancelar]', e.message);
+            const status = Number.isInteger(e?.status) ? e.status : 500;
+            return res.status(status).json({ ok: false, error: e.message || 'Error al cancelar' });
         }
     });
 
@@ -1562,8 +1605,8 @@ function registerOnboardingRoutes(deps) {
 
             const avbQ = await pool.query(
                 `SELECT
-                    COUNT(*) FILTER (WHERE c.activo = TRUE)::int AS activos,
-                    COUNT(*) FILTER (WHERE c.activo = FALSE)::int AS bajas
+                    COUNT(*) FILTER (WHERE c.activo = TRUE AND c.cancelado IS NOT TRUE)::int AS activos,
+                    COUNT(*) FILTER (WHERE c.activo = FALSE AND c.cancelado IS NOT TRUE)::int AS bajas
                  FROM colaboradores c ${avb.whereSql}`,
                 avb.params
             );

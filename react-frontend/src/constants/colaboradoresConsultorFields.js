@@ -3,6 +3,11 @@
  * kind: text | textarea | date | number | money | int | bool
  */
 import { formatMoneyAmountOnly, parseMoneyInput } from '../multiCurrencyMoney.js';
+import {
+    FICHA_SECCION_INDICADORES,
+    FICHA_SELECT_OPTIONS,
+    edadEnAniosHastaHoy
+} from '../onboarding/fichaCatalogos.js';
 
 const RAW_FIELDS = [
     ['codigo', 'Código', 'text'],
@@ -10,7 +15,7 @@ const RAW_FIELDS = [
     ['primer_apellido', 'Primer apellido', 'text'],
     ['segundo_apellido', 'Segundo apellido', 'text'],
     ['nombres', 'Nombres', 'text'],
-    ['esquema_contrato', 'Esquema de contrato', 'text'],
+    ['esquema_contrato', 'Esquema de contrato', 'select'],
     ['empleador', 'Empleador', 'text'],
     ['pais', 'País', 'text'],
     ['cliente_proyecto', 'Cliente / proyecto', 'text'],
@@ -19,8 +24,8 @@ const RAW_FIELDS = [
     ['fecha_ingreso', 'Fecha de ingreso', 'date'],
     ['fecha_notificacion_termino', 'Fecha notificación del término', 'date'],
     ['fecha_termino', 'Fecha de término', 'date'],
-    ['tipo_contrato', 'Tipo de contrato', 'text'],
-    ['modalidad_contrato', 'Modalidad (contrato)', 'text'],
+    ['tipo_contrato', 'Tipo de contrato', 'select'],
+    ['modalidad_contrato', 'Modalidad (contrato)', 'select'],
     ['costo_empresa', 'Costo empresa', 'money'],
     ['tarifa_cliente', 'Tarifa (cliente)', 'money'],
     ['utilidad', 'Utilidad', 'money'],
@@ -37,7 +42,7 @@ const RAW_FIELDS = [
     ['costo_equipo_computo', 'Costo equipo de cómputo', 'money'],
     ['puesto', 'Puesto', 'text'],
     ['descriptivo_puesto_sig', 'Descriptivo puesto SIG', 'textarea'],
-    ['tipo_identificacion', 'Tipo de identificación', 'text'],
+    ['tipo_identificacion', 'Tipo de identificación', 'select'],
     ['numero_identidad', 'N° identidad', 'text'],
     ['lugar_nacimiento', 'Lugar de nacimiento', 'text'],
     ['fecha_nacimiento', 'Fecha de nacimiento', 'date'],
@@ -49,9 +54,9 @@ const RAW_FIELDS = [
     ['cesantias', 'Cesantías', 'text'],
     ['direccion_domicilio', 'Dirección domicilio', 'text'],
     ['ciudad', 'Ciudad', 'text'],
-    ['departamento', 'Departamento', 'text'],
+    ['departamento', 'Departamento', 'select'],
     ['celular_personal', 'Celular personal', 'text'],
-    ['modalidad_trabajo', 'Modalidad de trabajo', 'text'],
+    ['modalidad_trabajo', 'Modalidad de trabajo', 'select'],
     ['reporte_arl_teletrabajo', '# Reporte ARL teletrabajo', 'text'],
     ['email_personal', 'E-mail personal', 'text'],
     ['profesion', 'Profesión', 'text'],
@@ -63,8 +68,8 @@ const RAW_FIELDS = [
     ['email_gerente_servicio', 'E-mail gerente de servicio', 'text'],
     ['seguimiento_pp', 'Seguimiento (PP)', 'text'],
     ['desempeno_ed_servicio', 'Desempeño (ED) / servicio', 'text'],
-    ['sexo', 'Sexo', 'text'],
-    ['estado_civil', 'Estado civil', 'text'],
+    ['sexo', 'Sexo', 'select'],
+    ['estado_civil', 'Estado civil', 'select'],
     ['tiene_dependientes', '¿Dependientes?', 'bool'],
     ['tiene_hijos', 'Tiene hijos', 'bool'],
     ['edades_hijos', 'Edades hijos', 'text'],
@@ -149,7 +154,6 @@ export const CO_CONSULTOR_SECTIONS = [
         title: 'Identificación y nombre',
         keys: [
             'codigo',
-            'estado_catalogo',
             'tipo_identificacion',
             'numero_identidad',
             'primer_apellido',
@@ -160,8 +164,7 @@ export const CO_CONSULTOR_SECTIONS = [
             'edad',
             'sexo',
             'estado_civil',
-            'clasificacion_candidato',
-            'segundo_idioma'
+            'clasificacion_candidato'
         ]
     },
     {
@@ -198,13 +201,12 @@ export const CO_CONSULTOR_SECTIONS = [
             'tipo_contrato',
             'modalidad_contrato',
             'modalidad_trabajo',
-            'modalidad_adicional',
             'periodicidad_pago',
             'moneda'
         ]
     },
     {
-        title: 'Indicadores y costos del correo',
+        title: FICHA_SECCION_INDICADORES,
         keys: [
             'tarifa_promedio_mes',
             'venta_total',
@@ -362,7 +364,7 @@ export const CO_TABS = [
         masterFields: false,
         sectionTitles: [
             'Contrato y fechas',
-            'Indicadores y costos del correo',
+            FICHA_SECCION_INDICADORES,
             'Costos y remuneración',
             'Seguridad social'
         ]
@@ -471,6 +473,7 @@ export function mapRowToStaffForm(row) {
     }
     if (Array.isArray(row.historial)) out.historial = row.historial;
     if (row.contratos_vigentes_count != null) out.contratos_vigentes_count = row.contratos_vigentes_count;
+    out.edad = edadEnAniosHastaHoy(out.fecha_nacimiento);
     return out;
 }
 
@@ -537,9 +540,16 @@ export function buildStaffColaboradorPayload(coForm) {
     if (e1) ext.primer_contacto_familiar = e1;
     if (e2) ext.segundo_contacto_familiar = e2;
 
+    const age = edadEnAniosHastaHoy(coForm.fecha_nacimiento);
+    ext.edad = age === '' ? null : parseInt(age, 10);
+
     return ext;
 }
 
 export function getFieldMeta(key) {
-    return metaByKey.get(key);
+    const meta = metaByKey.get(key);
+    if (!meta) return undefined;
+    const options = FICHA_SELECT_OPTIONS[key];
+    if (options) return { ...meta, kind: 'select', options };
+    return meta;
 }

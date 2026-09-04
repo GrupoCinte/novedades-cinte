@@ -14,6 +14,7 @@
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Arquitectura del sistema, diagramas ASCII, flujos críticos, startup | Devs senior / DevOps |
 | [ENV_REFERENCE.md](./ENV_REFERENCE.md) | Todas las variables de entorno con descripción, defaults y checklist prod | Devs / DevOps |
 | [RBAC_MATRIX.md](./RBAC_MATRIX.md) | Roles, paneles, aprobadores por tipo de novedad, scoping, flujo de resolución | Devs / Admin |
+| [Filtros desplegable múltiple](../react-frontend/src/shared/filters/README.md) | Patrón UX de filtros de listado (desplegable múltiple, barra liviana, chips). Replicar en todo el portal | Devs / UX |
 
 ---
 

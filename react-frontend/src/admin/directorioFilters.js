@@ -13,18 +13,27 @@ export function buildClienteChipLabel({ activo, pageSize }) {
 }
 
 export function buildConsultoresChipLabel({ activo, tipoContrato, pageSize }) {
-    const parts = [activoLabel(activo)];
-    if (String(tipoContrato || '').trim()) parts.push(String(tipoContrato).trim());
-    parts.push(`${pageSize} filas`);
+    const parts = [];
+    if (activo !== '') parts.push(activo === 'true' ? 'Activos' : 'Inactivos');
+    if (tipoContrato !== '') parts.push(`Contrato: ${tipoContrato}`);
+    if (parts.length === 0) return `Todos · ${pageSize} filas`;
     return parts.join(' · ');
 }
 
-export function buildReubicacionesChipLabel({ q, fechaFinDesde, fechaFinHasta, estado, pageSize }) {
+export function buildReubicacionesChipLabel({ q, fechaFinDesde, fechaFinHasta, estado, aptoNoApto, tipoEvento, actor, tipoFicha, cliente, gp, diasRestantesDesde, diasRestantesHasta, pageSize }) {
     const n = countActiveFilters([
         [q, String(q || '').trim()],
         [fechaFinDesde, String(fechaFinDesde || '').trim()],
         [fechaFinHasta, String(fechaFinHasta || '').trim()],
-        [estado, String(estado || '').trim()]
+        [estado, String(estado || '').trim()],
+        [aptoNoApto, String(aptoNoApto || '').trim()],
+        [tipoEvento, String(tipoEvento || '').trim()],
+        [actor, String(actor || '').trim()],
+        [tipoFicha, String(tipoFicha || '').trim()],
+        [cliente, String(cliente || '').trim()],
+        [gp, String(gp || '').trim()],
+        [diasRestantesDesde, String(diasRestantesDesde || '').trim()],
+        [diasRestantesHasta, String(diasRestantesHasta || '').trim()]
     ]);
     if (n === 0) return `Todos · ${pageSize} filas`;
     return `${n} filtro${n === 1 ? '' : 's'} · ${pageSize} filas`;
@@ -40,12 +49,29 @@ export function buildCatalogoTiChipLabel({ limit }) {
 }
 
 export const CLIENTE_FILTER_DEFAULTS = { activo: 'true', pageSize: 10, q: '' };
-export const CONSULTORES_FILTER_DEFAULTS = { activo: 'all', tipoContrato: '', pageSize: 10, q: '' };
+export const CONSULTORES_FILTER_DEFAULTS = { 
+    q: '',
+    activo: 'true',
+    cliente: '',
+    perfil: '',
+    tipoContrato: '',
+    fechaInicioDesde: '',
+    fechaInicioHasta: '',
+    pageSize: 20
+};
 export const REUBICACIONES_FILTER_DEFAULTS = {
     q: '',
     fechaFinDesde: '',
     fechaFinHasta: '',
     estado: '',
+    aptoNoApto: '',
+    tipoEvento: '',
+    actor: '',
+    tipoFicha: '',
+    cliente: '',
+    gp: '',
+    diasRestantesDesde: '',
+    diasRestantesHasta: '',
     pageSize: 20
 };
 export const MALLAS_FILTER_DEFAULTS = { cliente: '' };

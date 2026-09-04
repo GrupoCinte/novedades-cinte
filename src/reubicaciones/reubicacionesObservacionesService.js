@@ -1,7 +1,8 @@
 'use strict';
 
 const { v4: uuidv4 } = require('uuid');
-const { lockPipeline, checkIdempotency, insertHistory } = require('./reubicacionesCommon');
+const { lockPipeline, checkIdempotency } = require('./reubicacionesCommon');
+const { registrarEventoHistorial } = require('./reubicacionesHistoryService');
 
 function validateInput(observacion, expectedVersion, idempotencyKey) {
     if (!observacion || observacion.trim().length === 0) return 'La observación no puede estar vacía';
@@ -66,15 +67,18 @@ async function registrarObservacion({ pipelineId, observacion, expectedVersion, 
             [uuidv4(), pipelineId, nextVersion, observacion.trim(), actor.user_id, actor.role, idempotencyKey]
         );
 
-        // 6. Historial
-        await insertHistory(client, {
-            pipelineId,
-            consultorId,
-            tipo: 'observacion_ch',
-            actor,
-            descripcion: `Registro de observación (v${nextVersion})`,
-            beforeData: observacionAnterior ? { observacion: observacionAnterior } : null,
-            afterData: { observacion: observacion.trim() }
+        // 6. Registrar en historial integral (HU-06)
+        await registrarEventoHistorial(client, {
+            caso_id: pipelineId,
+            consultor_id: consultorId,
+            tipo: 'observacion_agregada',
+            actor_nombre: actor.name || actor.full_name || 'Usuario',
+            actor_rol: actor.role,
+            origen: 'MANUAL',
+            descripcion: `Observación agregada (v${nextVersion})`,
+            before_data: observacionAnterior ? { observacion: observacionAnterior, version: currentVersion } : null,
+            after_data: { observacion: observacion.trim(), version: nextVersion },
+            source_event_id: `obs_${idempotencyKey}`
         });
 
         await client.query('COMMIT');

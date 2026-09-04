@@ -678,6 +678,24 @@ function createDataLayer(deps) {
                     processed_at TIMESTAMPTZ DEFAULT NOW()
                 );
 
+                CREATE TABLE IF NOT EXISTS reubicaciones_historial (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    caso_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id) ON DELETE RESTRICT,
+                    consultor_id TEXT NULL REFERENCES colaboradores(cedula) ON DELETE SET NULL,
+                    tipo TEXT NOT NULL,
+                    actor_nombre TEXT NOT NULL,
+                    actor_rol TEXT NOT NULL,
+                    origen TEXT NOT NULL,
+                    descripcion TEXT NOT NULL,
+                    before_data JSONB NULL,
+                    after_data JSONB NULL,
+                    source_event_id TEXT NOT NULL,
+                    fecha TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_reub_hist_source_event UNIQUE (caso_id, source_event_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_reub_historial_caso ON reubicaciones_historial(caso_id, fecha DESC);
+                CREATE INDEX IF NOT EXISTS idx_reub_historial_consultor ON reubicaciones_historial(consultor_id);
+
                 CREATE TABLE IF NOT EXISTS reubicaciones_observaciones (
                     id UUID PRIMARY KEY,
                     pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id),

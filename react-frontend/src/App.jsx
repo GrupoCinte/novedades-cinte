@@ -452,7 +452,7 @@ function App() {
           />
           {/* Rutas legadas: redirigen al hub Capital Humano preseleccionando la vista. */}
           <Route path="/admin/contratacion" element={<Navigate to="/admin/capital-humano?v=monitor-active" replace />} />
-          <Route path="/admin/onboarding" element={<Navigate to="/admin/capital-humano?v=personal" replace />} />
+          <Route path="/admin/onboarding" element={<Navigate to="/admin/capital-humano?v=consultores" replace />} />
           <Route
             path="/admin/directorio"
             element={(

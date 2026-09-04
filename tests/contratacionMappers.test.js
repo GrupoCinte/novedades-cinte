@@ -26,6 +26,17 @@ describe('contratacion mappers — monitor En ingreso', () => {
         );
     });
 
+    it('mapDynamoItemToExecution expone cédula normalizada', () => {
+        const ex = mapDynamoItemToExecution({
+            whatsapp_number: 'candidato@example.com',
+            cedula: '1.017.890.123',
+            status: 'Documentos Recibidos',
+            nombre: 'Ana'
+        });
+        assert.equal(ex.cedula, '1017890123');
+        assert.equal(ex.statusId, 4);
+    });
+
     it('mapDynamoItemToExecution expone pendiente_revision en Zoho (filtrar antes del monitor)', () => {
         const zoho = buildZohoDynamoItem({
             output: { ID_Registro: '1' },

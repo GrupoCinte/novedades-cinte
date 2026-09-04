@@ -1,7 +1,8 @@
 'use strict';
 
 const { v4: uuidv4 } = require('uuid');
-const { lockPipeline, checkIdempotency, insertHistory } = require('./reubicacionesCommon');
+const { lockPipeline, checkIdempotency } = require('./reubicacionesCommon');
+const { registrarEventoHistorial } = require('./reubicacionesHistoryService');
 
 function validateInput(decision, justificacion, idempotencyKey) {
     if (!decision || !['APTO', 'NO_APTO'].includes(decision)) return 'Decisión debe ser APTO o NO_APTO';
@@ -58,15 +59,19 @@ async function registrarDecision({ pipelineId, decision, justificacion, decidido
 
         await client.query('UPDATE reubicaciones_pipeline SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [pipelineId]);
 
-        // 5. Historial
-        await insertHistory(client, {
-            pipelineId,
-            consultorId,
-            tipo: 'decision_aptitud',
-            actor: decididoPor,
+
+        // Registrar en historial
+        await registrarEventoHistorial(client, {
+            caso_id: pipelineId,
+            consultorId: null, // Opcional
+            tipo: 'decision_agregada',
+            actor_nombre: decididoPor.name || 'Usuario',
+            actor_rol: decididoPor.role,
+            origen: 'MANUAL',
             descripcion: `Decisión registrada: ${decision}`,
-            beforeData: null,
-            afterData: { decision, justificacion: justificacion.trim() }
+            before_data: null,
+            after_data: { decision, justificacion: justificacion.trim() },
+            source_event_id: `dec_${idempotencyKey}`
         });
 
         await client.query('COMMIT');

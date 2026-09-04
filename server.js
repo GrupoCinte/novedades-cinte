@@ -994,6 +994,7 @@ registerTiRolesRoutes({
 
 registerContratacionRoutes({
     app,
+    pool,
     verificarToken,
     allowPanel,
     allowRoles,

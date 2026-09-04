@@ -116,6 +116,9 @@ function mapDynamoItemToExecution(data) {
                   ? `email:${String(data.email).trim()}`
                   : `sin-clave:${crypto.createHash('sha1').update(JSON.stringify({ n: displayName, s: currentStatus, t: effectiveTimestamp })).digest('hex').slice(0, 24)}`;
 
+    const cedulaDigits = String(data.cedula ?? data.identificacion ?? data.Identificacion_Numero ?? '')
+        .replace(/\D+/g, '');
+
     return {
         executionId,
         workflowName: displayName,
@@ -124,6 +127,7 @@ function mapDynamoItemToExecution(data) {
         timestamp: effectiveTimestamp,
         email: data.email,
         puesto: data.puesto,
+        cedula: cedulaDigits || undefined,
         realStatus: currentStatus,
         statusId: mapStatusToId(currentStatus),
         fullData: redacted

@@ -66,6 +66,7 @@ export const onboardingApi = {
     listProximos: (token, params) => get(token, '/proximos', params),
     listPorVencer: (token, params) => get(token, '/por-vencer', params),
     listBajas: (token, params) => get(token, '/bajas', params),
+    listCancelados: (token, params) => get(token, '/cancelados', params),
     listSena: (token, params) => get(token, '/sena', params),
     listStaff: (token, params) => get(token, '/staff', params),
     getPersonal: (token, cedula) => get(token, `/personal/${encodeURIComponent(cedula)}`),
@@ -78,6 +79,8 @@ export const onboardingApi = {
     putExtranjeros: (token, cedula, body) => put(token, `/documentos-extranjeros/${encodeURIComponent(cedula)}`, body),
     postLicencia: (token, body) => post(token, '/licencias', body),
     marcarBaja: (token, cedula, body) => patch(token, `/personal/${encodeURIComponent(cedula)}/baja`, body),
+    marcarCancelado: (token, cedula, body) =>
+        patch(token, `/personal/${encodeURIComponent(cedula)}/cancelar`, body || {}),
     catalogoMotivoBaja: (token) => get(token, '/catalogos/motivo-baja'),
     catalogoCiudades: (token) => get(token, '/catalogos/ciudades'),
     catalogoPuestos: (token) => get(token, '/catalogos/puestos'),

@@ -40,6 +40,7 @@ import { userHasDirectorioPanel } from './directorioAccess.js';
 import { userHasReubicacionesAccess } from './reubicacionesAccess.js';
 import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
 import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
+import ReubicacionesHistorialGlobal from './ReubicacionesHistorialGlobal';
 import AdministracionDashboardPage from './AdministracionDashboardPage';
 import MallasTurnosModule from './MallasTurnosModule';
 import MonitoreoActividadesView from './MonitoreoActividadesView.jsx';
@@ -204,7 +205,10 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     const restrictedAllowedViews = useMemo(() => {
         const views = [];
         if (gpMallasOnly || userHasMallasAccess(auth)) views.push('mallasTurnos');
-        if (canAccessReubicaciones) views.push('reubicaciones');
+        if (canAccessReubicaciones) {
+            views.push('reubicaciones');
+            views.push('reubicaciones_historial');
+        }
         if (canAccessMonitoreo) views.push('monitoreo');
         if (canAccessSeguimiento) views.push('seguimiento');
         return views;
@@ -227,6 +231,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             seguimiento: canAccessSeguimiento ? 'seguimiento' : null,
             dashboard: 'dashboardAdmin',
             reubicaciones: 'reubicaciones',
+            'reubicaciones-historial-global': 'reubicaciones_historial',
             'mallas-turnos': 'mallasTurnos',
             'catalogo-ti': showTiCatalogSubmod ? 'catalogoTi' : null
         };
@@ -1097,16 +1102,20 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         />
                     ) : null}
                     {renderSeguimientoNavBtn("Seguimiento")}
-                    <NavBtn
-                        active={mainView === 'reubicaciones'}
-                        icon={ArrowRightLeft}
-                        label="Reubicaciones"
-                        onClick={() => {
-                            setReubicacionesNavIntent((prev) => ({ seq: prev.seq + 1, reset: true }));
-                            setMainView('reubicaciones');
-                            setMobileMenuOpen(false);
-                        }}
-                    />
+                    {canAccessReubicaciones && (
+                        <>
+                            <NavBtn
+                                active={mainView === 'reubicaciones'}
+                                icon={ArrowRightLeft}
+                                label="Reubicaciones"
+                                onClick={() => {
+                                    setReubicacionesNavIntent((prev) => ({ seq: prev.seq + 1, reset: true }));
+                                    setMainView('reubicaciones');
+                                    setMobileMenuOpen(false);
+                                }}
+                            />
+                        </>
+                    )}
                 </>
             ) : (
                 <>
@@ -1712,6 +1721,10 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
                     {mainView === 'reubicaciones' ? (
                         <ReubicacionesPipelinePage token={token} auth={auth} navIntent={reubicacionesNavIntent} />
+                    ) : null}
+
+                    {mainView === 'reubicaciones_historial' ? (
+                        <ReubicacionesHistorialGlobal token={token} auth={auth} />
                     ) : null}
 
                     {mainView === 'mallasTurnos' ? (

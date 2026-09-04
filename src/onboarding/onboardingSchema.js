@@ -95,6 +95,9 @@ async function ensureColaboradoresOnboardingColumns({ pool, logger }) {
         { sql: `ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS fecha_fin_practica DATE NULL` },
         // Bajas → mismo maestro con activo=FALSE + causales
         { sql: `ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS motivo_baja TEXT NULL` },
+        { sql: `ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS cancelado BOOLEAN NOT NULL DEFAULT FALSE` },
+        { sql: `ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS fecha_cancelacion TIMESTAMPTZ NULL` },
+        { sql: `ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS obs_cancelacion TEXT NULL` },
         { sql: `ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS termino TEXT NULL` },
         { sql: `ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS tiempo_permanencia_meses NUMERIC(10,2) NULL` },
         { sql: `ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS fecha_baja_efectiva DATE NULL` },
@@ -140,7 +143,8 @@ async function ensureColaboradoresOnboardingColumns({ pool, logger }) {
         `CREATE INDEX IF NOT EXISTS idx_colaboradores_whatsapp_number ON colaboradores(whatsapp_number) WHERE whatsapp_number IS NOT NULL`,
         `CREATE INDEX IF NOT EXISTS idx_colaboradores_dynamo_ext_id ON colaboradores(dynamo_external_id) WHERE dynamo_external_id IS NOT NULL`,
         `CREATE INDEX IF NOT EXISTS idx_colaboradores_motivo_baja ON colaboradores(motivo_baja) WHERE motivo_baja IS NOT NULL`,
-        `CREATE INDEX IF NOT EXISTS idx_colaboradores_fecha_baja ON colaboradores(fecha_baja_efectiva) WHERE fecha_baja_efectiva IS NOT NULL`
+        `CREATE INDEX IF NOT EXISTS idx_colaboradores_fecha_baja ON colaboradores(fecha_baja_efectiva) WHERE fecha_baja_efectiva IS NOT NULL`,
+        `CREATE INDEX IF NOT EXISTS idx_colaboradores_cancelado ON colaboradores(cancelado) WHERE cancelado IS TRUE`
     ];
     for (const sql of indexes) {
         try {
@@ -156,14 +160,14 @@ async function ensureColaboradoresOnboardingColumns({ pool, logger }) {
 async function ensureColaboradoresViews({ pool, logger }) {
     const views = [
         `CREATE OR REPLACE VIEW v_colaboradores_activos AS
-         SELECT * FROM colaboradores WHERE activo = TRUE`,
+         SELECT * FROM colaboradores WHERE activo = TRUE AND cancelado IS NOT TRUE`,
         `CREATE OR REPLACE VIEW v_colaboradores_bajas AS
          SELECT * FROM colaboradores
-         WHERE activo = FALSE
-            OR motivo_baja IS NOT NULL`,
+         WHERE cancelado IS NOT TRUE
+           AND (activo = FALSE OR motivo_baja IS NOT NULL)`,
         `CREATE OR REPLACE VIEW v_colaboradores_consultores_activos AS
          SELECT * FROM colaboradores
-         WHERE activo = TRUE AND tipo_personal = 'consultor'`,
+         WHERE activo = TRUE AND cancelado IS NOT TRUE AND tipo_personal = 'consultor'`,
         /**
          * Reporte de rotación. Reemplaza la hoja "Rotación" del Excel.
          * Una fila por (cliente, motivo, mes_baja). El frontend agrega los totales que necesite.
@@ -177,8 +181,8 @@ async function ensureColaboradoresViews({ pool, logger }) {
              COUNT(*)::int                              AS cuenta,
              ROUND(AVG(c.tiempo_permanencia_meses)::numeric, 2) AS permanencia_avg_meses
          FROM colaboradores c
-         WHERE c.motivo_baja IS NOT NULL
-            OR c.activo = FALSE
+         WHERE c.cancelado IS NOT TRUE
+           AND (c.motivo_baja IS NOT NULL OR c.activo = FALSE)
          GROUP BY 1, 2, 3, 4`
     ];
     for (const sql of views) {
