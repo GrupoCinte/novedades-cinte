@@ -9,7 +9,8 @@ import {
     REUBICACIONES_FILTER_DEFAULTS
 } from './admin/directorioFilters.js';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
-import { formatMoneyAmountOnly } from './multiCurrencyMoney.js';
+import { currencyNarrowSymbol, formatMoneyAmountOnly } from './multiCurrencyMoney.js';
+import { canEditReubicaciones } from './reubicacionesAccess.js';
 import { ReubicacionesDetalleModal } from './ReubicacionesDetalleModal.jsx';
 import ReubicacionesHistorialGlobal from './ReubicacionesHistorialGlobal.jsx';
 
@@ -33,6 +34,15 @@ function authHeaders(token) {
     return headers;
 }
 
+function formatTarifaDisplay(row) {
+    const key = 'tarifa_cliente';
+    const n = row.tarifa_cliente;
+    if (n == null || n === '') return '—';
+    const ccy = row.montos_divisa?.[key] || 'COP';
+    const num = Number(n);
+    if (!Number.isFinite(num)) return '—';
+    return `${formatMoneyAmountOnly(num, ccy)}\u00A0${currencyNarrowSymbol(ccy)}`;
+}
 
 /** Componente visual para estado de reubicaciones HU-05 */
 export function EstadoBadge({ estado, dias_transcurridos, isLight }) {
@@ -49,7 +59,7 @@ export function EstadoBadge({ estado, dias_transcurridos, isLight }) {
         );
     }
     if (s === 'En proceso') {
-        const diaStr = (dias_transcurridos != null && dias_transcurridos > 0) ? ` · día ${dias_transcurridos}` : '';
+        const diaStr = (dias_transcurridos != null && dias_transcurridos >= 0) ? ` · día ${dias_transcurridos}` : '';
         return (
             <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -123,6 +133,7 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     
     
+    
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
 
     const [items, setItems] = useState([]);
@@ -147,18 +158,6 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
     const [appliedAptoFiltro, setAppliedAptoFiltro] = useState('');
     const [appliedTipoEventoFiltro, setAppliedTipoEventoFiltro] = useState('');
     const [appliedActorFiltro, setAppliedActorFiltro] = useState('');
-    const [tipoFichaFiltro, setTipoFichaFiltro] = useState('');
-    const [appliedTipoFichaFiltro, setAppliedTipoFichaFiltro] = useState('');
-    const [clienteFiltro, setClienteFiltro] = useState('');
-    const [appliedClienteFiltro, setAppliedClienteFiltro] = useState('');
-    const [gpFiltro, setGpFiltro] = useState('');
-    const [appliedGpFiltro, setAppliedGpFiltro] = useState('');
-    const [diasRestantesDesde, setDiasRestantesDesde] = useState('');
-    const [diasRestantesHasta, setDiasRestantesHasta] = useState('');
-    const [appliedDiasRestantesDesde, setAppliedDiasRestantesDesde] = useState('');
-    const [appliedDiasRestantesHasta, setAppliedDiasRestantesHasta] = useState('');
-    const [clienteOptions, setClienteOptions] = useState([]);
-    const [gpOptions, setGpOptions] = useState([]);
 
     const [sort, setSort] = useState({ key: null, dir: 'asc' });
 
@@ -166,8 +165,15 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
     const [createForm, setCreateForm] = useState(emptyForm);
     const [createSaving, setCreateSaving] = useState(false);
 
+    const [editOpen, setEditOpen] = useState(false);
+    const [editRow, setEditRow] = useState(null);
+    const [editForm, setEditForm] = useState(emptyForm);
+    const [editSaving, setEditSaving] = useState(false);
+
     const [detailOpen, setDetailOpen] = useState(false);
     const [detailRow, setDetailRow] = useState(null);
+
+    const [confirmDeleteRow, setConfirmDeleteRow] = useState(null);
 
     const totalPages = Math.max(1, Math.ceil((Number(total) || 0) / pageSize));
     const safePage = Math.min(Math.max(1, page), totalPages);
@@ -213,20 +219,15 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         () =>
             buildReubicacionesChipLabel({
                 q: appliedQ,
-                fechaFinDesde: appliedFechaFinDesde,
-                fechaFinHasta: appliedFechaFinHasta,
-                estado: appliedEstadoFiltro,
-                aptoNoApto: appliedAptoFiltro,
-                tipoEvento: appliedTipoEventoFiltro,
-                actor: appliedActorFiltro,
-                tipoFicha: appliedTipoFichaFiltro,
-                cliente: appliedClienteFiltro,
-                gp: appliedGpFiltro,
-                diasRestantesDesde: appliedDiasRestantesDesde,
-                diasRestantesHasta: appliedDiasRestantesHasta,
+                fechaFinDesde,
+                fechaFinHasta,
+                estado: estadoFiltro,
+                aptoNoApto: aptoFiltro,
+                tipoEvento: tipoEventoFiltro,
+                actor: actorFiltro,
                 pageSize
             }),
-        [appliedQ, appliedFechaFinDesde, appliedFechaFinHasta, appliedEstadoFiltro, appliedAptoFiltro, appliedTipoEventoFiltro, appliedActorFiltro, appliedTipoFichaFiltro, appliedClienteFiltro, appliedGpFiltro, appliedDiasRestantesDesde, appliedDiasRestantesHasta, pageSize]
+        [appliedQ, fechaFinDesde, fechaFinHasta, estadoFiltro, aptoFiltro, tipoEventoFiltro, actorFiltro, pageSize]
     );
 
     const clearFilters = useCallback(() => {
@@ -244,16 +245,6 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         setAppliedTipoEventoFiltro('');
         setActorFiltro('');
         setAppliedActorFiltro('');
-        setTipoFichaFiltro('');
-        setAppliedTipoFichaFiltro('');
-        setClienteFiltro('');
-        setAppliedClienteFiltro('');
-        setGpFiltro('');
-        setAppliedGpFiltro('');
-        setDiasRestantesDesde('');
-        setDiasRestantesHasta('');
-        setAppliedDiasRestantesDesde('');
-        setAppliedDiasRestantesHasta('');
         setPageSize(REUBICACIONES_FILTER_DEFAULTS.pageSize);
         setPage(1);
     }, []);
@@ -266,38 +257,9 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         setAppliedAptoFiltro(aptoFiltro);
         setAppliedTipoEventoFiltro(tipoEventoFiltro);
         setAppliedActorFiltro(actorFiltro);
-        setAppliedTipoFichaFiltro(tipoFichaFiltro);
-        setAppliedClienteFiltro(clienteFiltro);
-        setAppliedGpFiltro(gpFiltro);
-        setAppliedDiasRestantesDesde(diasRestantesDesde);
-        setAppliedDiasRestantesHasta(diasRestantesHasta);
         setPage(1);
         setFiltersPanelOpen(false);
-    }, [q, fechaFinDesde, fechaFinHasta, estadoFiltro, aptoFiltro, tipoEventoFiltro, actorFiltro, tipoFichaFiltro, clienteFiltro, gpFiltro, diasRestantesDesde, diasRestantesHasta]);
-
-    useEffect(() => {
-        let cancelled = false;
-        const loadFilterOptions = async () => {
-            try {
-                const res = await fetch('/api/directorio/reubicaciones-filtros', {
-                    credentials: 'include',
-                    headers: authHeaders(token)
-                });
-                const json = await res.json().catch(() => ({}));
-                if (!cancelled && res.ok) {
-                    setClienteOptions(Array.isArray(json.items) ? json.items : []);
-                    setGpOptions(Array.isArray(json.gpItems) ? json.gpItems : []);
-                }
-            } catch {
-                if (!cancelled) {
-                    setClienteOptions([]);
-                    setGpOptions([]);
-                }
-            }
-        };
-        loadFilterOptions();
-        return () => { cancelled = true; };
-    }, [token]);
+    }, [q, fechaFinDesde, fechaFinHasta, estadoFiltro, aptoFiltro, tipoEventoFiltro, actorFiltro]);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -312,11 +274,6 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
             if (appliedFechaFinHasta) u.set('fecha_fin_hasta', appliedFechaFinHasta);
             if (appliedEstadoFiltro) u.set('estado', appliedEstadoFiltro);
             if (appliedAptoFiltro) u.set('apto_no_apto', appliedAptoFiltro);
-            if (appliedTipoFichaFiltro) u.set('tipo_ficha', appliedTipoFichaFiltro);
-            if (appliedClienteFiltro) u.set('cliente', appliedClienteFiltro);
-            if (appliedGpFiltro) u.set('gp', appliedGpFiltro);
-            if (appliedDiasRestantesDesde !== '') u.set('dias_restantes_desde', appliedDiasRestantesDesde);
-            if (appliedDiasRestantesHasta !== '') u.set('dias_restantes_hasta', appliedDiasRestantesHasta);
             if (sort.key) {
                 u.set('sort', sort.key);
                 u.set('dir', sort.dir);
@@ -336,7 +293,7 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         } finally {
             setLoading(false);
         }
-    }, [token, pageSize, offset, appliedQ, appliedFechaFinDesde, appliedFechaFinHasta, appliedEstadoFiltro, appliedAptoFiltro, appliedTipoFichaFiltro, appliedClienteFiltro, appliedGpFiltro, appliedDiasRestantesDesde, appliedDiasRestantesHasta, sort, viewMode]);
+    }, [token, pageSize, offset, appliedQ, appliedFechaFinDesde, appliedFechaFinHasta, appliedEstadoFiltro, appliedAptoFiltro, sort, viewMode]);
 
     useEffect(() => {
         if (viewMode === 'reubicados') load();
@@ -400,6 +357,63 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
     const openDetail = (row) => {
         setDetailRow(row);
         setDetailOpen(true);
+    };
+
+    const openEdit = (row) => {
+        setEditRow(row);
+        setEditForm({
+            cedula: row.cedula,
+            fecha_fin: String(row.fecha_fin || '').slice(0, 10),
+            cliente_destino: row.cliente_destino || '',
+            causal: row.causal || ''
+        });
+        setEditOpen(true);
+    };
+
+    const submitEdit = async (e) => {
+        e.preventDefault();
+        if (!editRow?.id) return;
+        setEditSaving(true);
+        try {
+            const res = await fetch(`/api/directorio/reubicaciones-pipeline/${editRow.id}`, {
+                method: 'PATCH',
+                credentials: 'include',
+                headers: authHeaders(token),
+                body: JSON.stringify({
+                    fecha_fin: editForm.fecha_fin,
+                    cliente_destino: editForm.cliente_destino || null,
+                    causal: editForm.causal || null
+                })
+            });
+            const j = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
+            flash('Cambios guardados.');
+            setEditOpen(false);
+            setEditRow(null);
+            await load();
+        } catch (err) {
+            flash(err.message || 'Error al guardar.', false);
+        } finally {
+            setEditSaving(false);
+        }
+    };
+
+    const deleteRow = async (row) => {
+        if (!row?.id) return;
+        try {
+            const res = await fetch(`/api/directorio/reubicaciones-pipeline/${row.id}`, {
+                method: 'DELETE',
+                credentials: 'include',
+                headers: authHeaders(token)
+            });
+            const j = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
+            flash('Registro eliminado.');
+            setConfirmDeleteRow(null);
+            await load();
+        } catch (err) {
+            flash(err.message || 'No se pudo eliminar.', false);
+        }
     };
 
     const toolbarBtn =
@@ -473,19 +487,18 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
             <div className={`${dash.cardFlex} min-h-0 flex-1`}>
                 <div className={dash.tableWrap}>
                     <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
-                        <table className="w-full min-w-[1200px] border-collapse text-left text-sm">
+                        <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
                             <thead>
                                 <tr className={dash.thead}>
                                     <Th colKey="cedula" label="Cédula" />
                                     <Th colKey="consultor" label="Consultor" />
+                                    <Th colKey="tipo_contrato" label="Tipo contrato" />
                                     <Th colKey="cliente_actual" label="Cliente actual" />
                                     <Th colKey="cliente_destino" label="Cliente destino" />
-                                    <Th colKey="tipo_ficha" label="Tipo ficha" />
                                     <Th colKey="fecha_fin" label="Fecha fin" />
                                     <Th colKey="estado" label="Estado" />
-                                    <Th colKey="puesto" label="Puesto" />
-                                    <Th colKey="salario" label="Salario" />
-                                    <Th colKey="auxilios" label="Auxilios" />
+                                    <Th colKey="causal" label="Causal" />
+                                    <Th colKey="tarifa" label="Tarifa actual" />
                                 </tr>
                             </thead>
                             <tbody className={dash.tbody}>
@@ -498,59 +511,28 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                                 ) : items.length === 0 ? (
                                     <tr>
                                         <td colSpan={10} className={`p-12 text-center font-medium ${dash.muted}`}>
-                                            Sin registros en el pipeline de Reubicaciones.
+                                            Sin registros. Cree uno con «Nuevo registro» (la cédula debe existir en Consultores).
                                         </td>
                                     </tr>
                                 ) : (
                                     items.map((row) => (
-                                        <tr key={row.id} className={dash.trHover}>
+                                        <tr key={row.id} className={`${dash.trHover} cursor-pointer`} onClick={() => openDetail(row)}>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cedula}</td>
-                                            <td className={`${dash.tdName} whitespace-nowrap`}>
-                                                {row.consultor ? (
-                                                    <button
-                                                        type="button"
-                                                        className="cursor-pointer border-0 bg-transparent p-0 text-left font-inherit text-inherit hover:text-[#65BCF7] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#65BCF7]"
-                                                        onClick={() => openDetail(row)}
-                                                        aria-label={`Ver detalle de ${row.consultor}`}
-                                                    >
-                                                        {row.consultor}
-                                                    </button>
-                                                ) : '—'}
-                                            </td>
+                                            <td className={`${dash.tdName} whitespace-nowrap`}>{row.consultor || '—'}</td>
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>{row.tipo_contrato || '—'}</td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cliente_actual || '—'}</td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cliente_destino || '—'}</td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>
-                                                {(() => {
-                                                    if (!row.tipo_ficha) return '—';
-                                                    let badgeClass = '';
-                                                    if (row.tipo_ficha === 'SALIDA') {
-                                                        badgeClass = isLight ? 'bg-red-100 text-red-800' : 'bg-red-900/40 text-red-200';
-                                                    } else {
-                                                        badgeClass = isLight ? 'bg-blue-100 text-blue-800' : 'bg-blue-900/40 text-blue-200';
-                                                    }
-                                                    return (
-                                                        <span className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ${badgeClass}`}>
-                                                            {row.tipo_ficha}
-                                                        </span>
-                                                    );
-                                                })()}
-                                            </td>
-                                            <td className={`${dash.tdCell} whitespace-nowrap`}>
-                                                {String(row.fecha_fin || '').slice(0, 10) || '—'}
+                                                {String(row.fecha_fin || '').slice(0, 10)}
                                             </td>
                                             <td className="p-4 whitespace-nowrap">
                                                 <EstadoBadge estado={row.estado} dias_transcurridos={row.dias_transcurridos} isLight={isLight} />
                                             </td>
-                                            <td className={`${dash.tdCell} max-w-[180px] truncate`} title={row.puesto || ''}>
-                                                {row.puesto || '—'}
+                                            <td className={dash.tdCell} title={row.motivo || row.causal || ''}>
+                                                {row.motivo || row.causal || '—'}
                                             </td>
-                                            <td className={`${dash.tdCell} whitespace-nowrap text-right`}>
-                                                {row.salario != null ? `$ ${formatMoneyAmountOnly(Number(row.salario), 'COP')}` : '—'}
-                                            </td>
-                                            <td className={`${dash.tdCell} whitespace-nowrap text-right`}>
-                                                {row.auxilios != null && Number(row.auxilios) > 0
-                                                    ? `$ ${formatMoneyAmountOnly(Number(row.auxilios), 'COP')}`
-                                                    : '—'}
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>
+                                                {formatTarifaDisplay(row)}
                                             </td>
                                         </tr>
                                     ))
@@ -653,21 +635,6 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                     </select>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                    <label htmlFor="reubicaciones-drawer-tipo-ficha" className={dash.filtrosDrawerLabel}>
-                        Tipo de ficha
-                    </label>
-                    <select
-                        id="reubicaciones-drawer-tipo-ficha"
-                        className={`${field} w-full text-sm`}
-                        value={tipoFichaFiltro}
-                        onChange={(e) => setTipoFichaFiltro(e.target.value)}
-                    >
-                        <option value="">Todos</option>
-                        <option value="SALIDA">SALIDA</option>
-                        <option value="EXTENSION">EXTENSION</option>
-                    </select>
-                </div>
-                <div className="flex flex-col gap-1.5">
                     <label htmlFor="reubicaciones-drawer-apto" className={dash.filtrosDrawerLabel}>
                         Decisión
                     </label>
@@ -682,44 +649,6 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                         <option value="NO_APTO">NO APTO</option>
                         <option value="SIN_DECISION">SIN DECISIÓN</option>
                     </select>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                    <label htmlFor="reubicaciones-drawer-cliente" className={dash.filtrosDrawerLabel}>Cliente</label>
-                    <select
-                        id="reubicaciones-drawer-cliente"
-                        className={`${field} w-full text-sm`}
-                        value={clienteFiltro}
-                        onChange={(e) => setClienteFiltro(e.target.value)}
-                    >
-                        <option value="">Todos</option>
-                        {clienteOptions.map((item) => (
-                            <option key={item.cliente} value={item.cliente}>{item.cliente}</option>
-                        ))}
-                    </select>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                    <label htmlFor="reubicaciones-drawer-gp" className={dash.filtrosDrawerLabel}>GP</label>
-                    <select
-                        id="reubicaciones-drawer-gp"
-                        className={`${field} w-full text-sm`}
-                        value={gpFiltro}
-                        onChange={(e) => setGpFiltro(e.target.value)}
-                    >
-                        <option value="">Todos</option>
-                        {gpOptions.map((item) => (
-                            <option key={item.id} value={item.id}>{item.full_name || item.email}</option>
-                        ))}
-                    </select>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                    <div className="flex flex-col gap-1.5">
-                        <label htmlFor="reubicaciones-drawer-dias-desde" className={dash.filtrosDrawerLabel}>Días restantes desde</label>
-                        <input id="reubicaciones-drawer-dias-desde" type="number" min="0" className={`${field} w-full text-sm`} value={diasRestantesDesde} onChange={(e) => setDiasRestantesDesde(e.target.value)} />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                        <label htmlFor="reubicaciones-drawer-dias-hasta" className={dash.filtrosDrawerLabel}>Días restantes hasta</label>
-                        <input id="reubicaciones-drawer-dias-hasta" type="number" min="0" className={`${field} w-full text-sm`} value={diasRestantesHasta} onChange={(e) => setDiasRestantesHasta(e.target.value)} />
-                    </div>
                 </div>
                 {viewMode === 'historico' ? (
                     <>
@@ -835,6 +764,51 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                 </div>
             ) : null}
 
+            {editOpen && editRow ? (
+                <div className={modalShell}>
+                    <div className={`relative w-full max-w-lg rounded-2xl border p-6 shadow-xl ${isLight ? 'border-slate-200 bg-white' : 'border-[var(--border)] bg-[var(--surface)]'}`}>
+                        <h2 className={`text-lg font-heading font-bold mb-4 ${headingAccent}`}>Editar seguimiento</h2>
+                        <form onSubmit={submitEdit} className="space-y-3">
+                            <div>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Fecha fin *</label>
+                                <input
+                                    {...nativeCalendarOnlyInputProps}
+                                    type="date"
+                                    className={`w-full ${field}`}
+                                    value={editForm.fecha_fin}
+                                    onChange={(e) => setEditForm((f) => ({ ...f, fecha_fin: e.target.value }))}
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Cliente destino</label>
+                                <input
+                                    className={`w-full ${field}`}
+                                    value={editForm.cliente_destino}
+                                    onChange={(e) => setEditForm((f) => ({ ...f, cliente_destino: e.target.value }))}
+                                />
+                            </div>
+                            <div>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Causal</label>
+                                <input
+                                    className={`w-full ${field}`}
+                                    value={editForm.causal}
+                                    onChange={(e) => setEditForm((f) => ({ ...f, causal: e.target.value }))}
+                                />
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button type="button" className={dash.compactBtn} onClick={() => { setEditOpen(false); setEditRow(null); }}>
+                                    Cancelar
+                                </button>
+                                <button type="submit" disabled={editSaving} className={toolbarBtn}>
+                                    {editSaving ? 'Guardando…' : 'Guardar'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            ) : null}
+
             {detailOpen && detailRow ? (
                 <ReubicacionesDetalleModal
                     isOpen={detailOpen}
@@ -849,7 +823,42 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                         setDetailRow(prev => prev ? { ...prev, [field]: value } : prev);
                         load();
                     }}
+                    onEdit={(row) => {
+                        setDetailOpen(false);
+                        openEdit(row);
+                    }}
+                    onDelete={(row) => {
+                        setDetailOpen(false);
+                        setConfirmDeleteRow(row);
+                    }}
                 />
+            ) : null}
+
+            {confirmDeleteRow ? (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div
+                        className="modal-glass-scrim absolute inset-0 transition-opacity"
+                        onClick={() => setConfirmDeleteRow(null)}
+                    />
+                    <div className="modal-glass-sheet font-body relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl">
+                        <p className={`text-sm ${isLight ? 'text-slate-700' : 'text-[var(--text)]'}`}>
+                            ¿Eliminar el seguimiento de reubicación para la cédula{' '}
+                            <strong>{confirmDeleteRow.cedula}</strong>?
+                        </p>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button type="button" className={dash.compactBtn} onClick={() => setConfirmDeleteRow(null)}>
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                className="px-3 py-2 rounded-md bg-rose-600/90 text-white text-sm font-semibold"
+                                onClick={() => deleteRow(confirmDeleteRow)}
+                            >
+                                Eliminar
+                            </button>
+                        </div>
+                    </div>
+                </div>
             ) : null}
         </div>
     );

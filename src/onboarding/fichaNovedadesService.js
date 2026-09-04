@@ -291,13 +291,11 @@ function buildDiff(currentRow, proposed, opts = {}) { // nosonar
     return diff;
 }
 
-function buildPatchFromNormalized(tipoNovedad, normalized, allowedKeys = null) {
+function buildPatchFromNormalized(tipoNovedad, normalized) {
     const whitelist = getAllowedFieldsForTipo(tipoNovedad);
     const patch = {};
-    const keys = allowedKeys ? new Set(allowedKeys) : null;
     for (const [key, val] of Object.entries(normalized || {})) {
         if (key.startsWith('_')) continue;
-        if (keys && !keys.has(key)) continue;
         if (val === undefined || val === null || val === '') continue;
         if (whitelist && !whitelist.includes(key)) continue;
         patch[key] = val;
@@ -1295,6 +1293,15 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                         actor,
                         origen: origenZoho
                     });
+                    const afterBaja = await loadColaboradorFullSafe(pool, cedula, current);
+                    await recordFichaDiff(pool, {
+                        cedula,
+                        before: current,
+                        after: afterBaja || {},
+                        actor,
+                        origen: origenZoho,
+                        onlyKeys: ['motivo_baja', 'activo', 'termino']
+                    });
                 } catch (err) {
                     if (err.message === 'No hay contrato vigente para ese cliente') {
                         log.warn({ cedula, cliente: clienteFicha }, 'Salida aprobada sin contrato vigente. Continuando hacia Reubicaciones.');
@@ -1302,15 +1309,6 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                         throw err;
                     }
                 }
-                const afterBaja = await loadColaboradorFullSafe(pool, cedula, current);
-                await recordFichaDiff(pool, {
-                    cedula,
-                    before: current,
-                    after: afterBaja || {},
-                    actor,
-                    origen: origenZoho,
-                    onlyKeys: ['motivo_baja', 'activo', 'termino']
-                });
             }
             delete patch.fecha_termino;
             delete patch.fecha_notificacion_termino;
@@ -1458,11 +1456,18 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             delete patch.vigente_desde;
         }
 
-        const allowedPatch = buildPatchFromNormalized(tipo, normalized, Object.keys(patch));
-        if (Object.keys(allowedPatch).length > 0) {
+        if (Object.keys(patch).length > 0) {
             const beforePatch = await loadColaboradorFullSafe(pool, cedula, current);
             try {
-                await applyPatchToColaborador(cedula, allowedPatch);
+                await applyPatchToColaborador(cedula, patch);
+                await recordFichaDiff(pool, {
+                    cedula,
+                    before: beforePatch || current || {},
+                    after: { ...(beforePatch || current || {}), ...patch },
+                    actor,
+                    origen: origenZoho,
+                    onlyKeys: Object.keys(patch)
+                });
             } catch (err) {
                 if (err.message === 'Colaborador no encontrado' && tipo === 'extension') {
                     log.warn({ cedula }, 'Ignorando Colaborador no encontrado en EXTENSION. Continuando hacia Reubicaciones.');
@@ -1470,28 +1475,19 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                     throw err;
                 }
             }
-            const afterPatch = await loadColaboradorFullSafe(pool, cedula, beforePatch || current);
-            await recordFichaDiff(pool, {
-                cedula,
-                before: beforePatch || current || {},
-                after: afterPatch || { ...(beforePatch || current || {}), ...allowedPatch },
-                actor,
-                origen: origenZoho,
-                onlyKeys: Object.keys(allowedPatch)
-            });
         }
 
         // HU-02: Sincronizar extensiones y salidas
         if (tipo === 'extension' || tipo === 'salida') {
             try {
                 await sincronizarConPipeline({
-                    cedula,
+                    cedula: cedula,
                     tipo_novedad: tipo,
-                    normalized,
-                    patch,
+                    normalized: row.payload_normalizado || {},
+                    patch: patch,
                     staging_id: id,
                     external_id: row.external_id,
-                    pool,
+                    pool: pool,
                     notifyService: require('../notifications/emailNotificationsPublisher')
                 });
             } catch (error) {
