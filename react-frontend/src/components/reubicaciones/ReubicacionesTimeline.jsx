@@ -45,6 +45,7 @@ export default function ReubicacionesTimeline({ pipelineId, token, refreshTrigge
                 setError(data.error || 'Error al cargar el historial');
             }
         } catch (e) {
+            console.error('Error de red al cargar el historial:', e);
             setError('Error de red al cargar el historial');
         } finally {
             setLoading(false);
@@ -135,16 +136,37 @@ export default function ReubicacionesTimeline({ pipelineId, token, refreshTrigge
     );
 }
 
+function ReubicacionEventChanges({ evt, isExpanded, toggleExpand, isLight }) {
+    if (!evt.before && !evt.after) return null;
+    return (
+        <div className="mt-2">
+            <button 
+                onClick={() => toggleExpand(evt.id)}
+                className={`text-xs flex items-center gap-1 hover:underline ${isLight ? 'text-blue-600' : 'text-blue-400'}`}
+            >
+                {isExpanded ? <ArrowDown size={12} /> : <ArrowRight size={12} />}
+                {isExpanded ? 'Ocultar detalles técnicos' : 'Ver cambios'}
+            </button>
+            
+            {isExpanded && (
+                <div className={`mt-2 p-3 rounded-lg text-xs overflow-x-auto grid grid-cols-2 gap-4 ${isLight ? 'bg-slate-50 border border-slate-100 shadow-inner' : 'bg-slate-900/50 border border-slate-800'}`}>
+                    <ReubicacionEventValue label="Valor anterior" value={evt.before} isLight={isLight} colorClass="text-rose-600 dark:text-rose-400" />
+                    <ReubicacionEventValue label="Nuevo valor" value={evt.after} isLight={isLight} colorClass="text-emerald-600 dark:text-emerald-400" />
+                </div>
+            )}
+        </div>
+    );
+}
+
+function getIconBg(isLight, isAutomatic) {
+    if (isLight) return isAutomatic ? 'bg-amber-100 text-amber-600' : 'bg-sky-100 text-sky-600';
+    return isAutomatic ? 'bg-amber-900/50 text-amber-400' : 'bg-sky-900/50 text-sky-400';
+}
+
 function ReubicacionEventItem({ evt, isExpanded, toggleExpand, isLight, formatearFechaColombia }) {
     const isAutomatic = evt.origen === 'SISTEMA' || evt.origen === 'ZOHO';
     const Icon = isAutomatic ? Settings : User;
-    
-    let iconBg = '';
-    if (isLight) {
-        iconBg = isAutomatic ? 'bg-amber-100 text-amber-600' : 'bg-sky-100 text-sky-600';
-    } else {
-        iconBg = isAutomatic ? 'bg-amber-900/50 text-amber-400' : 'bg-sky-900/50 text-sky-400';
-    }
+    const iconBg = getIconBg(isLight, isAutomatic);
     
     return (
         <div className="relative pl-6 transition-all">
@@ -174,50 +196,42 @@ function ReubicacionEventItem({ evt, isExpanded, toggleExpand, isLight, formatea
                     {evt.descripcion}
                 </p>
                 
-                {(evt.before || evt.after) && (
-                    <div className="mt-2">
-                        <button 
-                            onClick={() => toggleExpand(evt.id)}
-                            className={`text-xs flex items-center gap-1 hover:underline ${isLight ? 'text-blue-600' : 'text-blue-400'}`}
-                        >
-                            {isExpanded ? <ArrowDown size={12} /> : <ArrowRight size={12} />}
-                            {isExpanded ? 'Ocultar detalles técnicos' : 'Ver cambios'}
-                        </button>
-                        
-                        {isExpanded && (
-                            <div className={`mt-2 p-3 rounded-lg text-xs overflow-x-auto grid grid-cols-2 gap-4 ${isLight ? 'bg-slate-50 border border-slate-100 shadow-inner' : 'bg-slate-900/50 border border-slate-800'}`}>
-                                <ReubicacionEventValue label="Valor anterior" value={evt.before} isLight={isLight} colorClass="text-rose-600 dark:text-rose-400" />
-                                <ReubicacionEventValue label="Nuevo valor" value={evt.after} isLight={isLight} colorClass="text-emerald-600 dark:text-emerald-400" />
-                            </div>
-                        )}
-                    </div>
-                )}
+                <ReubicacionEventChanges evt={evt} isExpanded={isExpanded} toggleExpand={toggleExpand} isLight={isLight} />
             </div>
         </div>
     );
 }
 
 function ReubicacionEventValue({ label, value, isLight, colorClass }) {
+    let content;
+    if (!value) {
+        content = <span className="italic text-slate-400">No aplica</span>;
+    } else if (typeof value === 'object') {
+        content = Object.entries(value).map(([k, v]) => {
+            let displayValue = String(v);
+            if (typeof v === 'object' && v !== null) {
+                displayValue = JSON.stringify(v);
+            } else if (v === '') {
+                displayValue = '(vacío)';
+            }
+            return (
+                <div key={k} className="flex flex-col">
+                    <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replaceAll('_', ' ')}</span>
+                    <span className={`${colorClass} whitespace-pre-wrap mt-0.5 break-words`}>
+                        {displayValue}
+                    </span>
+                </div>
+            );
+        });
+    } else {
+        content = <span className={`${colorClass} break-words`}>{String(value)}</span>;
+    }
+
     return (
         <div>
             <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">{label}</div>
             <div className="flex flex-col gap-2 mt-2">
-                {value ? (
-                    typeof value === 'object' ? (
-                        Object.entries(value).map(([k, v]) => (
-                            <div key={k} className="flex flex-col">
-                                <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replace(/_/g, ' ')}</span>
-                                <span className={`${colorClass} whitespace-pre-wrap mt-0.5 break-words`}>
-                                    {typeof v === 'object' && v !== null ? JSON.stringify(v) : (v === '' ? '(vacío)' : String(v))}
-                                </span>
-                            </div>
-                        ))
-                    ) : (
-                        <span className={`${colorClass} break-words`}>{String(value)}</span>
-                    )
-                ) : (
-                    <span className="italic text-slate-400">No aplica</span>
-                )}
+                {content}
             </div>
         </div>
     );

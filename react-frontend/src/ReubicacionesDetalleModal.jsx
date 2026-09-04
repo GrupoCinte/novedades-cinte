@@ -11,7 +11,7 @@ import {
 } from './reubicacionesAccess.js';
 
 function getCsrfToken() {
-    const match = document.cookie.match(/cinteXsrf=([^;]+)/);
+    const match = /cinteXsrf=([^;]+)/.exec(document.cookie);
     return match ? match[1] : '';
 }
 
@@ -29,13 +29,9 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
     // Estados para observaciones y decisiones
     const [observacion, setObservacion] = useState('');
     const [observacionActual, setObservacionActual] = useState(null);
-    const [historialObs, setHistorialObs] = useState([]);
-    const [mostrarHistorialObs, setMostrarHistorialObs] = useState(false);
-    
     const [decision, setDecision] = useState('');
     const [justificacion, setJustificacion] = useState('');
     const [decisionActual, setDecisionActual] = useState(null);
-    const [historialDec, setHistorialDec] = useState([]);
     
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -48,16 +44,10 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
     const decisionBloqueada = Boolean(decisionActual);
     const decisionSeleccionada = decisionActual?.decision || decision;
 
-    const infoCardClass = isLight
-        ? 'rounded-lg p-2.5 shadow-none bg-transparent'
-        : 'rounded-lg p-2.5 shadow-none bg-transparent';
+    const infoCardClass = 'rounded-lg p-2.5 shadow-none bg-transparent';
     const infoLabelClass = isLight ? 'text-xs font-medium text-slate-500' : 'text-xs font-medium text-slate-400';
     const infoValueClass = isLight ? 'mt-0.5 font-semibold text-slate-700' : 'mt-0.5 font-semibold text-slate-200';
     const textCapitalizedClass = 'capitalize';
-    const subtleTextClass = isLight ? 'text-slate-600' : 'text-slate-400';
-    const fieldClass = isLight
-        ? 'w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 shadow-none placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-0'
-        : 'w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm text-slate-100 shadow-none placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-0';
 
     // Cargar datos al abrir el modal
     useEffect(() => {
@@ -74,9 +64,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
             const data = await res.json();
             if (data.ok) {
                 setObservacionActual(data.observacion || null);
-                setHistorialObs(data.historialObs || []);
                 setDecisionActual(data.decision || null);
-                setHistorialDec(data.historialDec || []);
             }
         } catch (e) {
             console.error('Error cargando contexto de aptitud:', e);
@@ -122,6 +110,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                 setError(data.error || 'Error al guardar observación');
             }
         } catch (e) {
+            console.error(e);
             setError('Error al guardar observación');
         } finally {
             setLoading(false);
@@ -176,6 +165,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                 setError(data.error || 'Error al guardar decisión');
             }
         } catch (e) {
+            console.error(e);
             setError('Error al guardar decisión');
         } finally {
             setLoading(false);
@@ -216,6 +206,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                 setError(data.error || 'Error al actualizar');
             }
         } catch (e) {
+            console.error(e);
             setError('Error de conexión');
         } finally {
             setLoading(false);
@@ -358,9 +349,7 @@ function EditableField({ label, value, field, options, canModify, isLight, type 
         setIsEditing(false);
     };
 
-    const infoCardClass = isLight
-        ? 'rounded-lg p-2.5 shadow-none bg-transparent'
-        : 'rounded-lg p-2.5 shadow-none bg-transparent';
+    const infoCardClass = 'rounded-lg p-2.5 shadow-none bg-transparent';
     const infoLabelClass = isLight ? 'text-xs font-medium text-slate-500' : 'text-xs font-medium text-slate-400';
     const infoValueClass = isLight ? 'mt-0.5 font-semibold text-slate-700' : 'mt-0.5 font-semibold text-slate-200';
     const fieldClass = isLight
@@ -475,10 +464,11 @@ function ObservacionActionForm({ observacion, setObservacion, setError, handleGu
 
     return (
         <div className="mt-3 space-y-2">
-            <label className={`text-xs font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+            <label htmlFor="observacion-input" className={`text-xs font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
                 Nueva observación
             </label>
             <textarea
+                id="observacion-input"
                 value={observacion}
                 onChange={(e) => {
                     if (e.target.value.length <= 1000) {
@@ -540,32 +530,38 @@ export function DecisionAptitudPanel({ decisionActual, puedeDecidir, decision, s
     );
 }
 
+const THEME_STYLES = {
+    APTO: {
+        light: { bg: 'bg-emerald-50/90 border border-emerald-200 text-emerald-800', icon: 'text-emerald-600', text: 'text-emerald-700' },
+        dark: { bg: 'bg-emerald-950/35 border border-emerald-800/50 text-emerald-200', icon: 'text-emerald-400', text: 'text-emerald-300' }
+    },
+    NO_APTO: {
+        light: { bg: 'bg-rose-50/90 border border-rose-200 text-rose-800', icon: 'text-rose-600', text: 'text-rose-700' },
+        dark: { bg: 'bg-rose-950/35 border border-rose-800/50 text-rose-200', icon: 'text-rose-400', text: 'text-rose-300' }
+    }
+};
+
 function DecisionActualDisplay({ decisionActual, isLight }) {
     const isApto = decisionActual.decision === 'APTO';
-    const bgClass = isApto
-        ? isLight ? 'bg-emerald-50/90 border border-emerald-200 text-emerald-800' : 'bg-emerald-950/35 border border-emerald-800/50 text-emerald-200'
-        : isLight ? 'bg-rose-50/90 border border-rose-200 text-rose-800' : 'bg-rose-950/35 border border-rose-800/50 text-rose-200';
-    const iconColor = isApto
-        ? isLight ? 'text-emerald-600' : 'text-emerald-400'
-        : isLight ? 'text-rose-600' : 'text-rose-400';
-    const textColor = isApto
-        ? isLight ? 'text-emerald-700' : 'text-emerald-300'
-        : isLight ? 'text-rose-700' : 'text-rose-300';
-    
+    const theme = isApto ? THEME_STYLES.APTO[isLight ? 'light' : 'dark'] : THEME_STYLES.NO_APTO[isLight ? 'light' : 'dark'];
     const Icon = isApto ? CheckCircle : XCircle;
 
+    const actorName = decisionActual.actor_nombre || 'Usuario';
+    const actorRole = decisionActual.actor_role || decisionActual.actor_rol || '—';
+    const dateStr = new Date(decisionActual.fecha).toLocaleString('es-CO');
+
     return (
-        <div className={`mt-2 rounded-lg p-3 ${bgClass}`}>
+        <div className={`mt-2 rounded-lg p-3 ${theme.bg}`}>
             <div className="flex items-center gap-2">
-                <Icon size={16} className={iconColor} />
-                <span className={`font-semibold ${textColor}`}>
+                <Icon size={16} className={theme.icon} />
+                <span className={`font-semibold ${theme.text}`}>
                     {decisionActual.decision}
                 </span>
                 <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>
-                    por {decisionActual.actor_nombre || 'Usuario'} ({decisionActual.actor_role || decisionActual.actor_rol || '—'})
+                    por {actorName} ({actorRole})
                 </span>
-                <span className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-400'}`}>
-                    {new Date(decisionActual.fecha).toLocaleString('es-CO')}
+                <span className="text-xs text-slate-400">
+                    {dateStr}
                 </span>
             </div>
             <p className={`text-sm mt-1 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>
@@ -575,32 +571,49 @@ function DecisionActualDisplay({ decisionActual, isLight }) {
     );
 }
 
+const BTN_STYLES = {
+    APTO: {
+        selected: {
+            light: 'border-emerald-300 bg-emerald-50 text-emerald-700',
+            dark: 'border-emerald-600/60 bg-emerald-900/30 text-emerald-300'
+        },
+        default: {
+            light: 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200',
+            dark: 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-emerald-700/50'
+        }
+    },
+    NO_APTO: {
+        selected: {
+            light: 'border-rose-400 bg-rose-100 text-rose-800 shadow-sm',
+            dark: 'border-rose-600/60 bg-rose-900/30 text-rose-300'
+        },
+        default: {
+            light: 'border-slate-200 bg-white text-slate-700 hover:border-rose-300',
+            dark: 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-rose-700/50'
+        }
+    }
+};
+
 function DecisionActionForm({ decision, setDecision, decisionBloqueada, decisionSeleccionada, justificacion, setJustificacion, setError, handleGuardarDecision, loading, isLight }) {
-    const subtleTextClass = isLight ? 'text-slate-600' : 'text-slate-400';
     const fieldClass = isLight
         ? 'w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 shadow-none placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-0'
         : 'w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm text-slate-100 shadow-none placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-0';
 
     const getBtnClass = (type) => {
-        const isApto = type === 'APTO';
-        const isSelected = decisionSeleccionada === type;
-        if (isApto) {
-            return isSelected
-                ? isLight ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-emerald-600/60 bg-emerald-900/30 text-emerald-300'
-                : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-emerald-700/50';
-        } else {
-            return isSelected
-                ? isLight ? 'border-rose-400 bg-rose-100 text-rose-800 shadow-sm' : 'border-rose-600/60 bg-rose-900/30 text-rose-300'
-                : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-rose-300' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-rose-700/50';
-        }
+        const state = decisionSeleccionada === type ? 'selected' : 'default';
+        const mode = isLight ? 'light' : 'dark';
+        return BTN_STYLES[type][state][mode];
     };
+    
+    const handleSetApto = () => { if (!decisionBloqueada) { setDecision('APTO'); setError(''); } };
+    const handleSetNoApto = () => { if (!decisionBloqueada) { setDecision('NO_APTO'); setError(''); } };
 
     return (
         <div className="mt-3 space-y-3">
             <div className="flex gap-4">
                 <button
                     type="button"
-                    onClick={() => { if (!decisionBloqueada) { setDecision('APTO'); setError(''); } }}
+                    onClick={handleSetApto}
                     className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${getBtnClass('APTO')} ${decisionBloqueada ? 'cursor-not-allowed opacity-60' : ''}`}
                     disabled={loading || decisionBloqueada}
                 >
@@ -609,7 +622,7 @@ function DecisionActionForm({ decision, setDecision, decisionBloqueada, decision
                 </button>
                 <button
                     type="button"
-                    onClick={() => { if (!decisionBloqueada) { setDecision('NO_APTO'); setError(''); } }}
+                    onClick={handleSetNoApto}
                     className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${getBtnClass('NO_APTO')} ${decisionBloqueada ? 'cursor-not-allowed opacity-60' : ''}`}
                     disabled={loading || decisionBloqueada}
                 >
@@ -620,10 +633,11 @@ function DecisionActionForm({ decision, setDecision, decisionBloqueada, decision
             {!decisionBloqueada && (
                 <>
                     <div>
-                        <label className={`text-xs font-medium ${subtleTextClass}`}>
+                        <label htmlFor="justificacion-input" className={`text-xs font-medium ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
                             Justificación <span className="text-red-500">*</span>
                         </label>
                         <textarea
+                            id="justificacion-input"
                             value={justificacion}
                             onChange={(e) => {
                                 if (e.target.value.length <= 500) {

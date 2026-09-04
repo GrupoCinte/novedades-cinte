@@ -312,8 +312,8 @@ function registerDirectorioRoutes(deps) {
     const describeMallaPutValidationError = (zodError) => {
         const issue = zodError?.issues?.[0];
         if (!issue) return 'Datos inválidos al guardar la malla.';
-        const path = (Array.isArray(issue.path) ? issue.path : []).map((p) => String(p));
-        const has = (key) => path.includes(key);
+        const path = new Set((Array.isArray(issue.path) ? issue.path : []).map(String));
+        const has = (key) => path.has(key);
         if (has('cliente')) return 'Selecciona un cliente válido.';
         if (has('cedulas')) {
             return 'Cédula inválida (entre 5 y 24 caracteres) o más de 10 personas por franja.';
@@ -401,9 +401,15 @@ function registerDirectorioRoutes(deps) {
         apto_no_apto: z.enum(['APTO', 'NO_APTO', 'SIN_DECISION']).optional(),
         estado: z.preprocess((val) => {
             if (val == null || val === '') return undefined;
-            const arr = Array.isArray(val) ? val : String(val).split(',');
-            const cleaned = arr.map((s) => String(s).trim()).filter(Boolean);
-            return cleaned.length ? cleaned : undefined;
+            if (typeof val === 'string') {
+                const arr = val.split(',').map((s) => s.trim()).filter(Boolean);
+                return arr.length ? arr : undefined;
+            }
+            if (Array.isArray(val)) {
+                const arr = val.map((s) => (typeof s === 'string' ? s.trim() : s)).filter(Boolean);
+                return arr.length ? arr : undefined;
+            }
+            return val;
         }, z.array(z.enum(['Pendiente', 'En proceso', 'Con novedad'])).optional()),
         sort: z
             .enum([
@@ -434,14 +440,23 @@ function registerDirectorioRoutes(deps) {
         causal: z.union([z.string().max(500), z.literal('')]).optional().nullable()
     });
 
+    const MONTH_SHORT_ES_DASH = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    function formatMonthYmDash(ym) {
+        const m = /^(\d{4})-(\d{2})$/.exec(String(ym || ''));
+        if (!m) return String(ym || '');
+        const mi = Number(m[2]) - 1;
+        if (mi < 0 || mi > 11) return String(ym || '');
+        return `${MONTH_SHORT_ES_DASH[mi]} ${m[1]}`;
+    }
+
     function textOrNull(v) {
         const s = String(v ?? '').trim();
-        return s ? s : null;
+        return s || null;
     }
 
     function extractMonedas(row) {
-        let monedaSalario = undefined;
-        let monedaAuxilios = undefined;
+        let monedaSalario;
+        let monedaAuxilios;
         if (row.montos_divisa && typeof row.montos_divisa === 'object') {
             if (row.montos_divisa.sueldo_nomina) monedaSalario = row.montos_divisa.sueldo_nomina;
             if (row.montos_divisa.otros_ingresos) monedaAuxilios = row.montos_divisa.otros_ingresos;
@@ -484,15 +499,6 @@ function registerDirectorioRoutes(deps) {
             created_at: row.created_at,
             updated_at: row.updated_at
         };
-    }
-
-    const MONTH_SHORT_ES_DASH = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-    function formatMonthYmDash(ym) {
-        const m = /^(\d{4})-(\d{2})$/.exec(String(ym || ''));
-        if (!m) return String(ym || '');
-        const mi = Number(m[2]) - 1;
-        if (mi < 0 || mi > 11) return String(ym || '');
-        return `${MONTH_SHORT_ES_DASH[mi]} ${m[1]}`;
     }
 
     /**
@@ -573,7 +579,7 @@ function registerDirectorioRoutes(deps) {
         const counts = { Verde: 0, Amarillo: 0, Rojo: 0, Vencido: 0 };
         for (const row of semRes.rows || []) {
             const k = String(row.semaforo || '');
-            if (Object.prototype.hasOwnProperty.call(counts, k)) counts[k] = Number(row.n) || 0;
+            if (Object.hasOwn(counts, k)) counts[k] = Number(row.n) || 0;
         }
         const semaforoOrder = ['Verde', 'Amarillo', 'Rojo', 'Vencido'];
         const semaforoSeries = semaforoOrder.map((key) => ({
@@ -1405,8 +1411,7 @@ function registerDirectorioRoutes(deps) {
         
         if (motivoEsDatosFaltantes && fechaFinEfectiva && (!esSalida || causalEfectiva)) {
             const estadoRecalculado = calcularEstado({ fecha_fin: fechaFinEfectiva }).estado;
-            sets.push('motivo_novedad = NULL');
-            sets.push(`estado = $${n}`);
+            sets.push('motivo_novedad = NULL', `estado = $${n}`);
             vals.push(estadoRecalculado);
             afterData.estado = estadoRecalculado;
             n += 1;

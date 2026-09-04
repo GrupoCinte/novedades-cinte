@@ -113,7 +113,7 @@ async function upsertCasoExistente({
     let fecha_anterior = null;
     let fechaNuevaEfectiva = fecha_fin;
 
-    let tipoEventoHistorial = 'sincronizacion_actualizacion';
+    let tipoEventoHistorial;
 
     if (casoExistente.rows.length === 0) {
         tipoEventoHistorial = 'ficha_recibida';
@@ -227,8 +227,8 @@ async function sincronizarConPipeline({
         const { existe: colaboradorExiste, gp_user_id, puesto, sueldo_nomina, auxilio_transporte_obligatorio, auxilios_no_prestacionales } = await getGpUserInfo(client, ced);
     
     // Calcular auxilios (sumando ambos si existen)
-    const aux_1 = parseFloat(auxilio_transporte_obligatorio) || 0;
-    const aux_2 = parseFloat(auxilios_no_prestacionales) || 0;
+    const aux_1 = Number.parseFloat(auxilio_transporte_obligatorio) || 0;
+    const aux_2 = Number.parseFloat(auxilios_no_prestacionales) || 0;
     const auxilios_calculado = (aux_1 + aux_2) > 0 ? (aux_1 + aux_2) : null;
 
         const { fecha_fin, cliente_destino, causal } = computeFields(normalized, patch);
