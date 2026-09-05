@@ -1,5 +1,5 @@
 import { normalizePayload } from './comercialAccess';
-import { resolveRoleFromTokenPayload } from './sourcing/atraccionAccess';
+import { resolveRoleFromTokenPayload } from './contratacion/contratacionAccess.js';
 
 function getReubicacionesRole(auth) {
     const payload = normalizePayload(auth);
