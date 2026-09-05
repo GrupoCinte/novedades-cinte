@@ -163,76 +163,33 @@ async function sincronizarConPipeline({
         let esCasoExtension = false;
         let fecha_anterior = null;
         let fechaNuevaEfectiva = fecha_fin;
-
         let tipoEventoHistorial = 'sincronizacion_actualizacion';
 
         if (casoExistente.rows.length === 0) {
             tipoEventoHistorial = 'ficha_recibida';
-            // CA-02: Nuevo Caso
-            fechaNuevaEfectiva = fecha_fin || new Date(); // fallback para CA-06 (Con novedad)
+            fechaNuevaEfectiva = fecha_fin || new Date(); 
             const insert = await client.query(
                 `INSERT INTO reubicaciones_pipeline (cedula, fecha_fin, cliente_destino, causal, estado, motivo_novedad, tipo_ficha, ultimo_evento_id, puesto, salario, auxilios)
                  VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
-                [
-                    ced, 
-                    fechaNuevaEfectiva, 
-                    cliente_destino || null, 
-                    causal || null, 
-                    estado, 
-                    motivo, 
-                    (tipo_novedad || '').toUpperCase(),
-                    external_id,
-                    puesto || null,
-                    sueldo_nomina || null,
-                    auxilios_calculado
-                ]
+                [ced, fechaNuevaEfectiva, cliente_destino || null, causal || null, estado, motivo, (tipo_novedad || '').toUpperCase(), external_id, puesto || null, sueldo_nomina || null, auxilios_calculado]
             );
             pipeline_id = insert.rows[0].id;
         } else {
-            // CA-04: Extensión / Corrección
             const existing = casoExistente.rows[0];
             pipeline_id = existing.id;
             fecha_anterior = existing.fecha_fin;
             
-            // Evaluamos si verdaderamente es extensión
             esCasoExtension = (tipo_novedad === 'extension' || tipo_novedad === 'salida') && esExtension(fecha_anterior, fecha_fin);
             
-            if (tipo_novedad === 'salida') {
-                tipoEventoHistorial = 'salida';
-            } else if (tipo_novedad === 'reubicacion') {
-                tipoEventoHistorial = 'reubicacion';
-            } else {
-                tipoEventoHistorial = esCasoExtension ? 'sincronizacion_extension' : 'ficha_actualizada';
-            }
+            if (tipo_novedad === 'salida') tipoEventoHistorial = 'salida';
+            else if (tipo_novedad === 'reubicacion') tipoEventoHistorial = 'reubicacion';
+            else tipoEventoHistorial = esCasoExtension ? 'sincronizacion_extension' : 'ficha_actualizada';
+            
             fechaNuevaEfectiva = fecha_fin || fecha_anterior;
 
             await client.query(
-                `UPDATE reubicaciones_pipeline 
-                 SET fecha_fin = $1::date, 
-                     cliente_destino = COALESCE($2, cliente_destino), 
-                     causal = COALESCE($3, causal), 
-                     estado = $4, 
-                     motivo_novedad = $5, 
-                     tipo_ficha = $6,
-                     ultimo_evento_id = $7,
-                     puesto = COALESCE(puesto, $8),
-                     salario = COALESCE(salario, $9),
-                     auxilios = COALESCE(auxilios, $10),
-                     updated_at = NOW() 
-                 WHERE id = $11`,
-                [
-                    fechaNuevaEfectiva, 
-                    cliente_destino || null, 
-                    causal || null, 
-                    estado, 
-                    motivo, 
-                    (tipo_novedad || '').toUpperCase(),
-                    external_id,
-                    puesto || null,
-                    sueldo_nomina || null,
-                    auxilios_calculado,
-                    pipeline_id
-                ]
+                `UPDATE reubicaciones_pipeline SET fecha_fin = $1::date, cliente_destino = COALESCE($2, cliente_destino), causal = COALESCE($3, causal), estado = $4, motivo_novedad = $5, tipo_ficha = $6, ultimo_evento_id = $7, puesto = COALESCE(puesto, $8), salario = COALESCE(salario, $9), auxilios = COALESCE(auxilios, $10), updated_at = NOW() WHERE id = $11`,
+                [fechaNuevaEfectiva, cliente_destino || null, causal || null, estado, motivo, (tipo_novedad || '').toUpperCase(), external_id, puesto || null, sueldo_nomina || null, auxilios_calculado, pipeline_id]
             );
         }
 

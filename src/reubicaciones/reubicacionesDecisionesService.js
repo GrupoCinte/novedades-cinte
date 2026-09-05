@@ -21,7 +21,7 @@ async function registrarDecision({ pipelineId, decision, justificacion, decidido
         await client.query('BEGIN');
 
         // 1. Verificar caso y bloquear concurrencia
-        const consultorId = await lockPipeline(client, pipelineId);
+        await lockPipeline(client, pipelineId);
 
         // 2. Comprobación de Idempotencia
         const existing = await checkIdempotency(

@@ -395,7 +395,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                                     <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>
                                         por {decisionActual.actor_nombre || 'Usuario'} ({decisionActual.actor_role || decisionActual.actor_rol || '—'})
                                     </span>
-                                    <span className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-400'}`}>
+                                    <span className="text-xs text-slate-400">
                                         {new Date(decisionActual.fecha).toLocaleString('es-CO')}
                                     </span>
                                 </div>
@@ -437,10 +437,11 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                                 </div>
                                 {!decisionBloqueada && <>
                                 <div>
-                                    <label className={`text-xs font-medium ${subtleTextClass}`}>
+                                    <label htmlFor="decision_justificacion" className={`text-xs font-medium ${subtleTextClass}`}>
                                         Justificación <span className="text-red-500">*</span>
                                     </label>
                                     <textarea
+                                        id="decision_justificacion"
                                         value={justificacion}
                                         onChange={(e) => {
                                             if (e.target.value.length <= 500) {
@@ -498,9 +499,7 @@ function EditableField({ label, value, field, options, canModify, isLight, type 
         setIsEditing(false);
     };
 
-    const infoCardClass = isLight
-        ? 'rounded-lg p-2.5 shadow-none bg-transparent'
-        : 'rounded-lg p-2.5 shadow-none bg-transparent';
+    const infoCardClass = 'rounded-lg p-2.5 shadow-none bg-transparent';
     const infoLabelClass = isLight ? 'text-xs font-medium text-slate-500' : 'text-xs font-medium text-slate-400';
     const infoValueClass = isLight ? 'mt-0.5 font-semibold text-slate-700' : 'mt-0.5 font-semibold text-slate-200';
     const fieldClass = isLight

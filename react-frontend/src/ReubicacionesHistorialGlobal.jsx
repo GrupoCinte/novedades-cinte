@@ -99,19 +99,21 @@ export default function ReubicacionesHistorialGlobal({ token, searchQuery, filte
                         </tr>
                     </thead>
                     <tbody className={dash.tbody}>
-                        {error ? (
+                        {error && (
                             <tr>
                                 <td colSpan={5} className={`p-12 text-center font-medium ${dash.muted}`}>
                                     {error}
                                 </td>
                             </tr>
-                        ) : historial.length === 0 && !loading ? (
+                        )}
+                        {!error && historial.length === 0 && !loading && (
                             <tr>
                                 <td colSpan={5} className={`p-12 text-center font-medium ${dash.muted}`}>
                                     No hay resultados para los filtros seleccionados.
                                 </td>
                             </tr>
-                        ) : (
+                        )}
+                        {!error && historial.length > 0 && (
                             historial.map(item => (
                                 <tr
                                     key={item.id}
@@ -158,7 +160,7 @@ export default function ReubicacionesHistorialGlobal({ token, searchQuery, filte
                                         </p>
                                         {(() => {
                                             const changes = getAuditChanges(item.before, item.after);
-                                            const hasJustificacion = item.after && item.after.justificacion;
+                                            const hasJustificacion = item.after?.justificacion;
                                             const isExpanded = expandedRows.has(item.id);
                                             
                                             if (changes.length === 0 && !hasJustificacion) return null;
@@ -273,7 +275,7 @@ function auditFieldLabel(field) {
         cliente_destino: 'Cliente destino',
         causal: 'Causal'
     };
-    return labels[field] || field.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+    return labels[field] || field.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function getAuditChanges(before, after) {

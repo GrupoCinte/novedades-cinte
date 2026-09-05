@@ -439,8 +439,8 @@ function registerDirectorioRoutes(deps) {
         if (fechaFin instanceof Date) fechaFin = fechaFin.toISOString().slice(0, 10);
         else if (typeof fechaFin === 'string') fechaFin = fechaFin.slice(0, 10);
 
-        let monedaSalario = undefined;
-        let monedaAuxilios = undefined;
+        let monedaSalario;
+        let monedaAuxilios;
         if (row.montos_divisa && typeof row.montos_divisa === 'object') {
             if (row.montos_divisa.sueldo_nomina) monedaSalario = row.montos_divisa.sueldo_nomina;
             if (row.montos_divisa.otros_ingresos) monedaAuxilios = row.montos_divisa.otros_ingresos;
@@ -1028,6 +1028,170 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
+function _buildPipelinePatchUpdates(d, current, n) {
+    const sets = [];
+    const vals = [];
+    const afterData = { ...current };
+
+    if (d.fecha_fin !== undefined) {
+        sets.push(`fecha_fin = $${n}::date`);
+        vals.push(d.fecha_fin);
+        afterData.fecha_fin = d.fecha_fin;
+        n += 1;
+    }
+    if (d.cliente_destino !== undefined) {
+        const val = textOrNull(d.cliente_destino);
+        sets.push(`cliente_destino = $${n}`);
+        vals.push(val);
+        afterData.cliente_destino = val;
+        n += 1;
+    }
+    if (d.causal !== undefined) {
+        const val = textOrNull(d.causal);
+        sets.push(`causal = $${n}`);
+        vals.push(val);
+        afterData.causal = val;
+        n += 1;
+    }
+    
+    return { sets, vals, afterData, n };
+}
+
+function _buildPipelineWhereSql(d, gpAssignedClientes) {
+    const whereParts = [];
+    const whereParams = [];
+
+    if (gpAssignedClientes) {
+        if (gpAssignedClientes.length === 0) return { whereParts: ['1=0'], whereParams: [] };
+        const placeholders = gpAssignedClientes.map((_, i) => `$${whereParams.length + 1 + i}`);
+        whereParts.push(`c.cliente IN (${placeholders.join(', ')})`);
+        whereParams.push(...gpAssignedClientes);
+    }
+
+    const search = textOrNull(d.q);
+    if (search) {
+        const i = whereParams.length + 1;
+        whereParts.push(`(
+            c.cedula ILIKE '%' || $${i} || '%'
+            OR c.nombre ILIKE '%' || $${i} || '%'
+            OR COALESCE(rp.cliente_destino, '') ILIKE '%' || $${i} || '%'
+            OR COALESCE(rp.causal, '') ILIKE '%' || $${i} || '%'
+        )`);
+        whereParams.push(search);
+    }
+
+    if (textOrNull(d.fecha_fin_desde)) {
+        whereParts.push(`rp.fecha_fin >= $${whereParams.length + 1}::date`);
+        whereParams.push(d.fecha_fin_desde);
+    }
+    if (textOrNull(d.fecha_fin_hasta)) {
+        whereParts.push(`rp.fecha_fin <= $${whereParams.length + 1}::date`);
+        whereParams.push(d.fecha_fin_hasta);
+    }
+    if (d.estado && d.estado.length > 0) {
+        const estadoConds = [];
+        if (d.estado.includes('Con novedad')) estadoConds.push(`COALESCE(rp.motivo_novedad, '') <> ''`);
+        if (d.estado.includes('Pendiente')) estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin > (timezone('America/Bogota', now()))::date)`);
+        if (d.estado.includes('En proceso')) estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin <= (timezone('America/Bogota', now()))::date)`);
+        if (estadoConds.length) whereParts.push(`(${estadoConds.join(' OR ')})`);
+    }
+
+    appendAptitudFilter(whereParts, whereParams, d.apto_no_apto);
+    whereParts.push(`rp.estado IS DISTINCT FROM 'Cerrado'`);
+
+    return { whereParts, whereParams };
+}
+
+function _buildPipelineOrderSql(sortKey, dirStr) {
+    const dir = dirStr === 'desc' ? 'DESC' : 'ASC';
+    const estadoOrderSql = `
+        CASE
+            WHEN COALESCE(rp.motivo_novedad, '') <> '' THEN 3
+            WHEN rp.fecha_fin > (timezone('America/Bogota', now()))::date THEN 1
+            ELSE 2
+        END
+    `;
+    const orderMap = {
+        cedula: `c.cedula ${dir}`,
+        consultor: `c.nombre ${dir} NULLS LAST`,
+        tipo_contrato: `c.tipo_contrato ${dir} NULLS LAST`,
+        cliente_actual: `c.cliente ${dir} NULLS LAST`,
+        cliente_destino: `rp.cliente_destino ${dir} NULLS LAST`,
+        causal: `rp.causal ${dir} NULLS LAST`,
+        fecha_fin: `rp.fecha_fin ${dir} NULLS LAST`,
+        estado: `${estadoOrderSql} ${dir}, rp.fecha_fin ASC NULLS LAST`,
+        tarifa: `c.tarifa_cliente ${dir} NULLS LAST`
+    };
+    return (sortKey && orderMap[sortKey]) ? `ORDER BY ${orderMap[sortKey]}` : 'ORDER BY rp.fecha_fin ASC NULLS LAST, c.nombre ASC';
+}
+
+function _buildHistorialGlobalWhereSql(q, gpAssignedClientes) {
+    const params = [];
+    const whereParts = [];
+    
+    if (gpAssignedClientes) {
+        if (gpAssignedClientes.length === 0) return { whereParts: ['1=0'], params: [], cursorFecha: null, cursorId: null };
+        const placeholders = gpAssignedClientes.map((_, i) => `$${params.length + 1 + i}`);
+        whereParts.push(`c.cliente IN (${placeholders.join(', ')})`);
+        params.push(...gpAssignedClientes);
+    }
+
+    const search = textOrNull(q.q);
+    if (search) {
+        const i = params.length + 1;
+        whereParts.push(`(c.cedula ILIKE '%' || $${i} || '%' OR c.nombre ILIKE '%' || $${i} || '%')`);
+        params.push(search);
+    }
+
+    if (textOrNull(q.fecha_fin_desde)) {
+        whereParts.push(`rh.fecha >= $${params.length + 1}::timestamptz`);
+        params.push(textOrNull(q.fecha_fin_desde) + 'T00:00:00-05:00');
+    }
+    if (textOrNull(q.fecha_fin_hasta)) {
+        whereParts.push(`rh.fecha <= $${params.length + 1}::timestamptz`);
+        params.push(textOrNull(q.fecha_fin_hasta) + 'T23:59:59.999-05:00');
+    }
+    
+    if (q.estado) {
+        const arr = String(q.estado).split(',');
+        const estadoConds = [];
+        if (arr.includes('Con novedad')) estadoConds.push(`COALESCE(rp.motivo_novedad, '') <> ''`);
+        if (arr.includes('Pendiente')) estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin > (timezone('America/Bogota', now()))::date)`);
+        if (arr.includes('En proceso')) estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin <= (timezone('America/Bogota', now()))::date)`);
+        if (estadoConds.length) whereParts.push(`(${estadoConds.join(' OR ')})`);
+    }
+
+    appendAptitudFilter(whereParts, params, q.apto_no_apto);
+
+    if (q.tipo) {
+        const arr = String(q.tipo).split(',');
+        const placeholders = arr.map((_, i) => `$${params.length + 1 + i}`);
+        whereParts.push(`rh.tipo IN (${placeholders.join(', ')})`);
+        params.push(...arr);
+    }
+
+    if (q.actor) {
+        const i = params.length + 1;
+        whereParts.push(`rh.actor_nombre ILIKE '%' || $${i} || '%'`);
+        params.push(q.actor);
+    }
+
+    const cursor = q.cursor ? Buffer.from(q.cursor, 'base64').toString('utf8') : null;
+    let cursorFecha = null;
+    let cursorId = null;
+    if (cursor) {
+        const parts = cursor.split('|');
+        if (parts.length === 2) {
+            cursorFecha = parts[0];
+            cursorId = parts[1];
+            const i = params.length + 1;
+            whereParts.push(`(rh.fecha, rh.id) < ($${i}::timestamptz, $${i+1}::uuid)`);
+            params.push(cursorFecha, cursorId);
+        }
+    }
+    return { whereParts, params, cursorFecha, cursorId };
+}
+
     app.get('/api/directorio/reubicaciones-pipeline', ...reubReadGuard, async (req, res) => {
         try {
             const parsed = reubicacionesPipelineListSchema.safeParse(req.query);
@@ -1063,91 +1227,22 @@ function registerDirectorioRoutes(deps) {
                 FROM reubicaciones_pipeline rp
                 INNER JOIN colaboradores c ON c.cedula = rp.cedula`;
 
-            const whereParts = [];
-            const whereParams = [];
-
+            let gpAssignedClientes = null;
             const role = normalizeRoleOrNull(req.user?.role);
             if (role === 'gp') {
                 const gpEmail = String(req.user?.email || '').trim().toLowerCase();
                 const gpUserId = parseUuidActor(req.user?.sub);
                 const gpId = await resolveGpInternalUserIdForScope({ gpEmail, gpUserId });
-                const assigned = await listAssignedClientesForGpUserId(gpId);
-                if (assigned.length === 0) {
+                gpAssignedClientes = await listAssignedClientesForGpUserId(gpId);
+                if (gpAssignedClientes.length === 0) {
                     return res.json({ ok: true, items: [], total: 0, limit, offset });
                 }
-                const placeholders = assigned.map((_, i) => `$${whereParams.length + 1 + i}`);
-                whereParts.push(`c.cliente IN (${placeholders.join(', ')})`);
-                whereParams.push(...assigned);
             }
 
-            const search = textOrNull(d.q);
-            if (search) {
-                const i = whereParams.length + 1;
-                whereParts.push(`(
-                    c.cedula ILIKE '%' || $${i} || '%'
-                    OR c.nombre ILIKE '%' || $${i} || '%'
-                    OR COALESCE(rp.cliente_destino, '') ILIKE '%' || $${i} || '%'
-                    OR COALESCE(rp.causal, '') ILIKE '%' || $${i} || '%'
-                )`);
-                whereParams.push(search);
-            }
-
-            const fd = textOrNull(d.fecha_fin_desde);
-            const fh = textOrNull(d.fecha_fin_hasta);
-            if (fd) {
-                whereParts.push(`rp.fecha_fin >= $${whereParams.length + 1}::date`);
-                whereParams.push(fd);
-            }
-            if (fh) {
-                whereParts.push(`rp.fecha_fin <= $${whereParams.length + 1}::date`);
-                whereParams.push(fh);
-            }
-            if (d.estado && d.estado.length > 0) {
-                const estadoConds = [];
-                if (d.estado.includes('Con novedad')) {
-                    estadoConds.push(`COALESCE(rp.motivo_novedad, '') <> ''`);
-                }
-                if (d.estado.includes('Pendiente')) {
-                    estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin > (timezone('America/Bogota', now()))::date)`);
-                }
-                if (d.estado.includes('En proceso')) {
-                    estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin <= (timezone('America/Bogota', now()))::date)`);
-                }
-                if (estadoConds.length) {
-                    whereParts.push(`(${estadoConds.join(' OR ')})`);
-                }
-            }
-
-            appendAptitudFilter(whereParts, whereParams, d.apto_no_apto);
-
-            whereParts.push(`rp.estado IS DISTINCT FROM 'Cerrado'`);
-
+            const { whereParts, whereParams } = _buildPipelineWhereSql(d, gpAssignedClientes);
             const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
-            const dir = d.dir === 'desc' ? 'DESC' : 'ASC';
-            const sortKey = d.sort;
-            const estadoOrderSql = `
-                CASE
-                    WHEN COALESCE(rp.motivo_novedad, '') <> '' THEN 3
-                    WHEN rp.fecha_fin > (timezone('America/Bogota', now()))::date THEN 1
-                    ELSE 2
-                END
-            `;
-            const orderMap = {
-                cedula: `c.cedula ${dir}`,
-                consultor: `c.nombre ${dir} NULLS LAST`,
-                tipo_contrato: `c.tipo_contrato ${dir} NULLS LAST`,
-                cliente_actual: `c.cliente ${dir} NULLS LAST`,
-                cliente_destino: `rp.cliente_destino ${dir} NULLS LAST`,
-                causal: `rp.causal ${dir} NULLS LAST`,
-                fecha_fin: `rp.fecha_fin ${dir} NULLS LAST`,
-                estado: `${estadoOrderSql} ${dir}, rp.fecha_fin ASC NULLS LAST`,
-                tarifa: `c.tarifa_cliente ${dir} NULLS LAST`
-            };
-            const orderSql =
-                sortKey && orderMap[sortKey]
-                    ? `ORDER BY ${orderMap[sortKey]}`
-                    : 'ORDER BY rp.fecha_fin ASC NULLS LAST, c.nombre ASC';
+            const orderSql = _buildPipelineOrderSql(d.sort, d.dir);
 
             const fromJoin = `
                 FROM reubicaciones_pipeline rp
@@ -1327,9 +1422,6 @@ function registerDirectorioRoutes(deps) {
             }
             const d = parsed.data;
             const current = q.rows[0];
-            const sets = [];
-            const vals = [];
-            let n = 1;
             
             const beforeData = {
                 fecha_fin: current.fecha_fin,
@@ -1337,26 +1429,9 @@ function registerDirectorioRoutes(deps) {
                 causal: current.causal,
                 estado: current.estado
             };
-            const afterData = { ...beforeData };
 
-            if (d.fecha_fin !== undefined) {
-                sets.push(`fecha_fin = $${n}::date`);
-                vals.push(d.fecha_fin);
-                afterData.fecha_fin = d.fecha_fin;
-                n += 1;
-            }
-            if (d.cliente_destino !== undefined) {
-                sets.push(`cliente_destino = $${n}`);
-                vals.push(textOrNull(d.cliente_destino));
-                afterData.cliente_destino = textOrNull(d.cliente_destino);
-                n += 1;
-            }
-            if (d.causal !== undefined) {
-                sets.push(`causal = $${n}`);
-                vals.push(textOrNull(d.causal));
-                afterData.causal = textOrNull(d.causal);
-                n += 1;
-            }
+            let { sets, vals, afterData, n } = _buildPipelinePatchUpdates(d, current, 1);
+
             const fechaFinEfectiva = d.fecha_fin !== undefined ? d.fecha_fin : current.fecha_fin;
             const causalEfectiva = d.causal !== undefined ? textOrNull(d.causal) : current.causal;
             const esSalida = String(current.tipo_ficha || '').toUpperCase() === 'SALIDA';
@@ -1560,95 +1635,23 @@ function registerDirectorioRoutes(deps) {
 
     app.get('/api/directorio/reubicaciones-historial-global', ...reubReadGuard, async (req, res) => {
         try {
-            const cursor = req.query.cursor ? Buffer.from(req.query.cursor, 'base64').toString('utf8') : null;
-            let cursorFecha = null;
-            let cursorId = null;
-            if (cursor) {
-                const parts = cursor.split('|');
-                if (parts.length === 2) {
-                    cursorFecha = parts[0];
-                    cursorId = parts[1];
-                }
-            }
-
             const limit = 50;
-            const params = [];
-            const whereParts = [];
 
             // CA-07: Verificación GP (global)
+            let gpAssignedClientes = null;
             const role = normalizeRoleOrNull(req.user?.role);
             if (role === 'gp') {
                 const gpEmail = String(req.user?.email || '').trim().toLowerCase();
                 const gpUserId = parseUuidActor(req.user?.sub);
                 const gpId = await resolveGpInternalUserIdForScope({ gpEmail, gpUserId });
-                const assigned = await listAssignedClientesForGpUserId(gpId);
-                if (assigned.length === 0) {
+                gpAssignedClientes = await listAssignedClientesForGpUserId(gpId);
+                if (gpAssignedClientes.length === 0) {
                     return res.json({ ok: true, data: { historial: [], next_cursor: null } });
                 }
-                const placeholders = assigned.map((_, i) => `$${params.length + 1 + i}`);
-                whereParts.push(`c.cliente IN (${placeholders.join(', ')})`);
-                params.push(...assigned);
             }
 
-            const search = textOrNull(req.query.q);
-            if (search) {
-                const i = params.length + 1;
-                whereParts.push(`(
-                    c.cedula ILIKE '%' || $${i} || '%'
-                    OR c.nombre ILIKE '%' || $${i} || '%'
-                )`);
-                params.push(search);
-            }
-
-            const fd = textOrNull(req.query.fecha_fin_desde);
-            const fh = textOrNull(req.query.fecha_fin_hasta);
-            if (fd) {
-                whereParts.push(`rh.fecha >= ${params.length + 1}::timestamptz`);
-                params.push(fd + 'T00:00:00-05:00');
-            }
-            if (fh) {
-                whereParts.push(`rh.fecha <= ${params.length + 1}::timestamptz`);
-                params.push(fh + 'T23:59:59.999-05:00');
-            }
+            const { whereParts, params, cursorFecha, cursorId } = _buildHistorialGlobalWhereSql(req.query, gpAssignedClientes);
             
-            if (req.query.estado) {
-                const arr = String(req.query.estado).split(',');
-                const estadoConds = [];
-                if (arr.includes('Con novedad')) {
-                    estadoConds.push(`COALESCE(rp.motivo_novedad, '') <> ''`);
-                }
-                if (arr.includes('Pendiente')) {
-                    estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin > (timezone('America/Bogota', now()))::date)`);
-                }
-                if (arr.includes('En proceso')) {
-                    estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin <= (timezone('America/Bogota', now()))::date)`);
-                }
-                if (estadoConds.length) {
-                    whereParts.push(`(${estadoConds.join(' OR ')})`);
-                }
-            }
-
-            appendAptitudFilter(whereParts, params, req.query.apto_no_apto);
-
-            if (req.query.tipo) {
-                const arr = String(req.query.tipo).split(',');
-                const placeholders = arr.map((_, i) => `$${params.length + 1 + i}`);
-                whereParts.push(`rh.tipo IN (${placeholders.join(', ')})`);
-                params.push(...arr);
-            }
-
-            if (req.query.actor) {
-                const i = params.length + 1;
-                whereParts.push(`rh.actor_nombre ILIKE '%' || $${i} || '%'`);
-                params.push(req.query.actor);
-            }
-
-            if (cursorFecha && cursorId) {
-                const i = params.length + 1;
-                whereParts.push(`(rh.fecha, rh.id) < ($${i}::timestamptz, $${i+1}::uuid)`);
-                params.push(cursorFecha, cursorId);
-            }
-
             const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
             const sql = `

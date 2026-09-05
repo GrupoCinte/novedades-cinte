@@ -1103,18 +1103,16 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     ) : null}
                     {renderSeguimientoNavBtn("Seguimiento")}
                     {canAccessReubicaciones && (
-                        <>
-                            <NavBtn
-                                active={mainView === 'reubicaciones'}
-                                icon={ArrowRightLeft}
-                                label="Reubicaciones"
-                                onClick={() => {
-                                    setReubicacionesNavIntent((prev) => ({ seq: prev.seq + 1, reset: true }));
-                                    setMainView('reubicaciones');
-                                    setMobileMenuOpen(false);
-                                }}
-                            />
-                        </>
+                        <NavBtn
+                            active={mainView === 'reubicaciones'}
+                            icon={ArrowRightLeft}
+                            label="Reubicaciones"
+                            onClick={() => {
+                                setReubicacionesNavIntent((prev) => ({ seq: prev.seq + 1, reset: true }));
+                                setMainView('reubicaciones');
+                                setMobileMenuOpen(false);
+                            }}
+                        />
                     )}
                 </>
             ) : (

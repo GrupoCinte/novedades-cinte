@@ -8,10 +8,17 @@ function renderDiffValue(value, isLight, colorClass) {
     }
     if (typeof value === 'object') {
         return Object.entries(value).map(([k, v]) => {
-            const displayValue = typeof v === 'object' && v !== null ? JSON.stringify(v) : (v === '' ? '(vacío)' : String(v));
+            let displayValue;
+            if (typeof v === 'object' && v !== null) {
+                displayValue = JSON.stringify(v);
+            } else if (v === '') {
+                displayValue = '(vacío)';
+            } else {
+                displayValue = String(v);
+            }
             return (
                 <div key={k} className="flex flex-col">
-                    <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replace(/_/g, ' ')}</span>
+                    <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replaceAll('_', ' ')}</span>
                     <span className={`${colorClass} whitespace-pre-wrap mt-0.5 break-words`}>
                         {displayValue}
                     </span>
@@ -94,6 +101,80 @@ export default function ReubicacionesTimeline({ pipelineId, token, refreshTrigge
         }));
     };
 
+    const renderEvent = (evt) => {
+        const isAutomatic = evt.origen === 'SISTEMA' || evt.origen === 'ZOHO';
+        const Icon = isAutomatic ? Settings : User;
+        
+        let iconBg = '';
+        if (isLight) {
+            iconBg = isAutomatic ? 'bg-amber-100 text-amber-600' : 'bg-sky-100 text-sky-600';
+        } else {
+            iconBg = isAutomatic ? 'bg-amber-900/50 text-amber-400' : 'bg-sky-900/50 text-sky-400';
+        }
+        
+        const isExpanded = expandedEvents[evt.id];
+        
+        return (
+            <div key={evt.id} className="relative pl-6 transition-all">
+                <div className={`absolute -left-[13px] top-1 h-6 w-6 rounded-full flex items-center justify-center border-2 ${isLight ? 'border-white' : 'border-slate-900'} ${iconBg}`}>
+                    <Icon size={12} />
+                </div>
+                <div className={`rounded-lg border p-3 ${isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-800/70 border-slate-700'}`}>
+                    <div className="flex justify-between items-start gap-4">
+                        <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`font-semibold text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                                    {evt.tipo_label}
+                                </span>
+                            </div>
+                            <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                                {isAutomatic ? 'Generado por: ' : 'Actor: '} 
+                                <span className="font-medium text-slate-700 dark:text-slate-300">{evt.actor}</span> 
+                                {evt.rol && ` (${evt.rol})`}
+                            </p>
+                        </div>
+                        <div className={`text-xs whitespace-nowrap text-right ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {formatearFechaColombia(evt.fecha)}
+                        </div>
+                    </div>
+                    
+                    <p className={`text-sm mt-2 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        {evt.descripcion}
+                    </p>
+                    
+                    {(evt.before || evt.after) && (
+                        <div className="mt-2">
+                            <button 
+                                onClick={() => toggleExpand(evt.id)}
+                                className={`text-xs flex items-center gap-1 hover:underline ${isLight ? 'text-blue-600' : 'text-blue-400'}`}
+                            >
+                                {isExpanded ? <ArrowDown size={12} /> : <ArrowRight size={12} />}
+                                {isExpanded ? 'Ocultar detalles técnicos' : 'Ver cambios'}
+                            </button>
+                            
+                            {isExpanded && (
+                                <div className={`mt-2 p-3 rounded-lg text-xs overflow-x-auto grid grid-cols-2 gap-4 ${isLight ? 'bg-slate-50 border border-slate-100 shadow-inner' : 'bg-slate-900/50 border border-slate-800'}`}>
+                                    <div>
+                                        <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">Valor anterior</div>
+                                        <div className="flex flex-col gap-2 mt-2">
+                                            {renderDiffValue(evt.before, isLight, 'text-rose-600 dark:text-rose-400')}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">Nuevo valor</div>
+                                        <div className="flex flex-col gap-2 mt-2">
+                                            {renderDiffValue(evt.after, isLight, 'text-emerald-600 dark:text-emerald-400')}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
     if (loading && eventos.length === 0) {
         return (
             <div className={`mt-4 p-4 rounded-lg text-center ${isLight ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
@@ -125,79 +206,7 @@ export default function ReubicacionesTimeline({ pipelineId, token, refreshTrigge
                 </div>
             ) : (
                 <div className="relative border-l-2 border-slate-200 dark:border-slate-700 ml-3 space-y-4 pb-4">
-                    {eventos.map((evt) => {
-                        const isAutomatic = evt.origen === 'SISTEMA' || evt.origen === 'ZOHO';
-                        const Icon = isAutomatic ? Settings : User;
-                        
-                        let iconBg = '';
-                        if (isLight) {
-                            iconBg = isAutomatic ? 'bg-amber-100 text-amber-600' : 'bg-sky-100 text-sky-600';
-                        } else {
-                            iconBg = isAutomatic ? 'bg-amber-900/50 text-amber-400' : 'bg-sky-900/50 text-sky-400';
-                        }
-                        
-                        const isExpanded = expandedEvents[evt.id];
-                        
-                        return (
-                            <div key={evt.id} className="relative pl-6 transition-all">
-                                <div className={`absolute -left-[13px] top-1 h-6 w-6 rounded-full flex items-center justify-center border-2 ${isLight ? 'border-white' : 'border-slate-900'} ${iconBg}`}>
-                                    <Icon size={12} />
-                                </div>
-                                <div className={`rounded-lg border p-3 ${isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-800/70 border-slate-700'}`}>
-                                    <div className="flex justify-between items-start gap-4">
-                                        <div>
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <span className={`font-semibold text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                                                    {evt.tipo_label}
-                                                </span>
-                                            </div>
-                                            <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                                                {isAutomatic ? 'Generado por: ' : 'Actor: '} 
-                                                <span className="font-medium text-slate-700 dark:text-slate-300">{evt.actor}</span> 
-                                                {evt.rol && ` (${evt.rol})`}
-                                            </p>
-                                        </div>
-                                        <div className={`text-xs whitespace-nowrap text-right ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                                            {formatearFechaColombia(evt.fecha)}
-                                        </div>
-                                    </div>
-                                    
-                                    <p className={`text-sm mt-2 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                                        {evt.descripcion}
-                                    </p>
-                                    
-                                    {(evt.before || evt.after) && (
-                                        <div className="mt-2">
-                                            <button 
-                                                onClick={() => toggleExpand(evt.id)}
-                                                className={`text-xs flex items-center gap-1 hover:underline ${isLight ? 'text-blue-600' : 'text-blue-400'}`}
-                                            >
-                                                {isExpanded ? <ArrowDown size={12} /> : <ArrowRight size={12} />}
-                                                {isExpanded ? 'Ocultar detalles técnicos' : 'Ver cambios'}
-                                            </button>
-                                            
-                                            {isExpanded && (
-                                                <div className={`mt-2 p-3 rounded-lg text-xs overflow-x-auto grid grid-cols-2 gap-4 ${isLight ? 'bg-slate-50 border border-slate-100 shadow-inner' : 'bg-slate-900/50 border border-slate-800'}`}>
-                                                    <div>
-                                                        <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">Valor anterior</div>
-                                                        <div className="flex flex-col gap-2 mt-2">
-                                                            {renderDiffValue(evt.before, isLight, 'text-rose-600 dark:text-rose-400')}
-                                                        </div>
-                                                    </div>
-                                                    <div>
-                                                        <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">Nuevo valor</div>
-                                                        <div className="flex flex-col gap-2 mt-2">
-                                                            {renderDiffValue(evt.after, isLight, 'text-emerald-600 dark:text-emerald-400')}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
+                    {eventos.map(renderEvent)}
                 </div>
             )}
             

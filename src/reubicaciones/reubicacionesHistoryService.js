@@ -16,8 +16,26 @@ class IdempotencyConflictError extends Error {
     }
 }
 
+async function _handleUniqueViolation(client, e, savepointName, params, safeBeforeData, safeAfterData) {
+    await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+    
+    const existingRes = await client.query(
+        `SELECT tipo, before_data, after_data FROM reubicaciones_historial WHERE caso_id = $1::uuid AND source_event_id = $2 LIMIT 1`,
+        [params.caso_id, params.source_event_id]
+    );
+    if (existingRes.rows.length === 0) throw e;
+    const existing = existingRes.rows[0];
+    
+    const existingBeforeStr = existing.before_data ? JSON.stringify(existing.before_data) : null;
+    const existingAfterStr = existing.after_data ? JSON.stringify(existing.after_data) : null;
+
+    const isSame = (existing.tipo === params.tipo && existingBeforeStr === safeBeforeData && existingAfterStr === safeAfterData);
+    if (isSame) return { idempotent: true, action: 'ignored' };
+    throw new IdempotencyConflictError(`Conflicto de Idempotencia: El source_event_id ${params.source_event_id} ya existe con datos diferentes.`);
+}
+
 async function _executeInsertAndHandleConflicts(client, params, safeBeforeData, safeAfterData) {
-    const savepointName = `sp_hist_${params.source_event_id.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+    const savepointName = `sp_hist_${params.source_event_id.replace(/\W/g, '_')}`;
     await client.query(`SAVEPOINT ${savepointName}`);
 
     try {
@@ -52,21 +70,7 @@ async function _executeInsertAndHandleConflicts(client, params, safeBeforeData, 
         return { idempotent: false, action: 'inserted' };
     } catch (e) {
         if (String(e?.code) === '23505') {
-            await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-            
-            const existingRes = await client.query(
-                `SELECT tipo, before_data, after_data FROM reubicaciones_historial WHERE caso_id = $1::uuid AND source_event_id = $2 LIMIT 1`,
-                [params.caso_id, params.source_event_id]
-            );
-            if (existingRes.rows.length === 0) throw e;
-            const existing = existingRes.rows[0];
-            
-            const existingBeforeStr = existing.before_data ? JSON.stringify(existing.before_data) : null;
-            const existingAfterStr = existing.after_data ? JSON.stringify(existing.after_data) : null;
-
-            const isSame = (existing.tipo === params.tipo && existingBeforeStr === safeBeforeData && existingAfterStr === safeAfterData);
-            if (isSame) return { idempotent: true, action: 'ignored' };
-            throw new IdempotencyConflictError(`Conflicto de Idempotencia: El source_event_id ${params.source_event_id} ya existe con datos diferentes.`);
+            return await _handleUniqueViolation(client, e, savepointName, params, safeBeforeData, safeAfterData);
         } else {
             await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
             throw e;
@@ -122,7 +126,7 @@ function sanitizarDatosHistorial(data) {
 }
 
 function generarHashPayload(payload) {
-    const canonical = JSON.stringify(payload || {}, Object.keys(payload || {}).sort());
+    const canonical = JSON.stringify(payload || {}, Object.keys(payload || {}).sort((a, b) => a.localeCompare(b)));
     return crypto.createHash('sha256').update(canonical).digest('hex').substring(0, 16);
 }
 

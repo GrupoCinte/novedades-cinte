@@ -10,7 +10,6 @@ import {
 } from './admin/directorioFilters.js';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
 import { currencyNarrowSymbol, formatMoneyAmountOnly } from './multiCurrencyMoney.js';
-import { canEditReubicaciones } from './reubicacionesAccess.js';
 import { ReubicacionesDetalleModal } from './ReubicacionesDetalleModal.jsx';
 import ReubicacionesHistorialGlobal from './ReubicacionesHistorialGlobal.jsx';
 
