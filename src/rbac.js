@@ -1,5 +1,5 @@
 const POLICY = {
-    super_admin: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'onboarding', 'comercial', 'directorio', 'monitoreo', 'atraccion', 'reubicaciones'], viewAllAreas: true },
+    super_admin: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'onboarding', 'comercial', 'directorio', 'monitoreo', 'reubicaciones'], viewAllAreas: true },
     /**
      * Paridad funcional con super_admin en novedades (`canRole*` + alcance) y directorio maestro.
      * Incluye todos los subpaneles del módulo novedades (`dashboard`, `calendar`, `gestion`).
@@ -8,8 +8,8 @@ const POLICY = {
     cac: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'onboarding', 'directorio', 'monitoreo', 'reubicaciones'], viewAllAreas: true },
     /** Alcance de novedades sin filtro por `area` (misma visión global de lista que super_admin en ese aspecto). */
     /** Sin módulo comercial/cotizador (solo novedades amplias + contratación onboarding). */
-    admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'onboarding', 'atraccion', 'reubicaciones'], viewAllAreas: true },
-    team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'onboarding', 'atraccion', 'reubicaciones'], viewAllAreas: true },
+    admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'onboarding', 'reubicaciones'], viewAllAreas: true },
+    team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'onboarding', 'reubicaciones'], viewAllAreas: true },
     comercial: { panels: ['comercial'] },
     /**
      * Solo gestión de novedades (`allowPanel('gestion')`); sin otros paneles JWT (comercial, contratación, directorio).

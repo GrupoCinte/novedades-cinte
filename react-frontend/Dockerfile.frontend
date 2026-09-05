@@ -3,8 +3,6 @@ WORKDIR /app
 # Flags Vite embebidos en build (QA: true en .env del host al hacer compose build).
 ARG VITE_CONCILIACIONES_ENABLED=false
 ENV VITE_CONCILIACIONES_ENABLED=$VITE_CONCILIACIONES_ENABLED
-ARG VITE_ATRACCION_TALENTO_ENABLED=false
-ENV VITE_ATRACCION_TALENTO_ENABLED=$VITE_ATRACCION_TALENTO_ENABLED
 COPY react-frontend/package*.json ./
 RUN npm ci
 COPY react-frontend/ .

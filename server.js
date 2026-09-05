@@ -96,7 +96,6 @@ const { registerContratacionRoutes } = require('./src/contratacion/registerContr
 const { registerOnboardingRoutes } = require('./src/onboarding/registerOnboardingRoutes');
 const { registerDirectorioRoutes } = require('./src/directorio/registerDirectorioRoutes');
 const { registerConciliacionesRoutes } = require('./src/conciliaciones/registerConciliacionesRoutes');
-const { registerSourcingRoutes } = require('./src/sourcing/registerSourcingRoutes');
 const { ensureSeguimientoTables } = require('./src/seguimiento/seguimientoSchema');
 const { createSeguimientoService } = require('./src/seguimiento/seguimientoService');
 const { registerSeguimientoRoutes } = require('./src/seguimiento/registerSeguimientoRoutes');
@@ -315,8 +314,6 @@ app.use((req, res, next) => {
     if (CSRF_SKIP_PATHS.has(p)) return next();
     // Aprobar/rechazar conciliación desde enlace de correo (auth por token de un solo uso).
     if (p.startsWith('/api/conciliaciones/email-accion/')) return next();
-    // Callbacks del worker de sourcing (auth propia vía x-sourcing-worker-key en la ruta).
-    if (p.startsWith('/api/atraccion/internal/')) return next();
     const hdr = String(req.get('x-cinte-xsrf') || req.get('x-xsrf-token') || '').trim();
     if (!hdr || !cookie || hdr !== cookie) {
         return res.status(403).json({ ok: false, error: 'CSRF token inválido o ausente' });
@@ -952,19 +949,6 @@ if (conciliacionesModuleEnabled) {
         upsertConciliacionEmailPlantillaCorreoLiderForScope,
         pool,
         emailAccionLimiter
-    });
-}
-
-const atraccionTalentoModuleEnabled =
-    String(process.env.ATRACCION_TALENTO_MODULE_ENABLED || 'false').toLowerCase() === 'true';
-if (atraccionTalentoModuleEnabled) {
-    registerSourcingRoutes({
-        app,
-        pool,
-        verificarToken,
-        allowPanel,
-        adminActionLimiter,
-        catalogLimiter
     });
 }
 

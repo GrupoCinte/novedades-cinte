@@ -22,13 +22,6 @@ import ConciliacionesDashboardPage from './conciliaciones/ConciliacionesDashboar
 import ConciliacionesFacturacionPage from './conciliaciones/ConciliacionesFacturacionPage.jsx';
 import ConciliacionesServiciosPage from './conciliaciones/ConciliacionesServiciosPage.jsx';
 import ConciliacionesEmailAccionPage from './conciliaciones/ConciliacionesEmailAccionPage.jsx';
-import AtraccionTalentoModule from './sourcing/AtraccionTalentoModule.jsx';
-import AtraccionVacantePage from './sourcing/AtraccionVacantePage.jsx';
-import AtraccionShortlistPage from './sourcing/AtraccionShortlistPage.jsx';
-import AtraccionCapturaPage from './sourcing/AtraccionCapturaPage.jsx';
-import AtraccionCampanasPage from './sourcing/AtraccionCampanasPage.jsx';
-import AtraccionIntegracionesPage from './sourcing/AtraccionIntegracionesPage.jsx';
-import AtraccionCandidatosRedirect from './sourcing/AtraccionCandidatosRedirect.jsx';
 import AdminPortalHome from './AdminPortalHome';
 import AdminAccountSettingsPage from './AdminAccountSettingsPage.jsx';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
@@ -42,8 +35,7 @@ import { cognitoSignOut } from './cognitoAuth';
 import { useUiTheme } from './UiThemeContext.jsx';
 import { pathIsAdminModuleShell, ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';
 import { installRuntimeClientTrace } from './runtimeClientTrace.js';
-import { userHasAtraccionTalentoAccess } from './sourcing/atraccionAccess';
-import { CONCILIACIONES_MODULE_ENABLED, ATRACCION_TALENTO_MODULE_ENABLED } from './featureFlags.js';
+import { CONCILIACIONES_MODULE_ENABLED } from './featureFlags.js';
 
 function AdminPortalSinModulos({ onLogout }) {
   const { theme } = useUiTheme();
@@ -78,7 +70,6 @@ function adminPortalModuleCount(auth) {
   if (userHasContratacionPanel(auth) || userHasOnboardingPanel(auth)) n += 1;
   if (userHasDirectorioPanel(auth)) n += 1;
   if (userHasMonitoreoAccess(auth)) n += 1;
-  if (ATRACCION_TALENTO_MODULE_ENABLED && userHasAtraccionTalentoAccess(auth)) n += 1;
   return n;
 }
 
@@ -357,31 +348,7 @@ function App() {
           ) : (
             <Route path="/admin/conciliaciones/*" element={<Navigate to="/admin" replace />} />
           )}
-          {ATRACCION_TALENTO_MODULE_ENABLED ? (
-            <Route
-              path="/admin/atraccion-talento"
-              element={(
-                <ProtectedRoute auth={auth}>
-                  {userHasAtraccionTalentoAccess(auth) ? (
-                    <AtraccionTalentoModule auth={auth} onLogout={handleLogout} />
-                  ) : (
-                    <Navigate to="/admin" replace />
-                  )}
-                </ProtectedRoute>
-              )}
-            >
-              <Route index element={<Navigate to="vacante" replace />} />
-              <Route path="vacante" element={<AtraccionVacantePage token={auth?.token || ''} />} />
-              <Route path="shortlist" element={<AtraccionShortlistPage token={auth?.token || ''} />} />
-              <Route path="busqueda" element={<Navigate to="../shortlist" replace />} />
-              <Route path="captura" element={<AtraccionCapturaPage token={auth?.token || ''} />} />
-              <Route path="campanas" element={<AtraccionCampanasPage token={auth?.token || ''} />} />
-              <Route path="candidatos" element={<AtraccionCandidatosRedirect token={auth?.token || ''} />} />
-              <Route path="integraciones" element={<AtraccionIntegracionesPage token={auth?.token || ''} />} />
-            </Route>
-          ) : (
-            <Route path="/admin/atraccion-talento/*" element={<Navigate to="/admin" replace />} />
-          )}
+          <Route path="/admin/atraccion-talento/*" element={<Navigate to="/admin" replace />} />
           <Route
             path="/admin"
             element={

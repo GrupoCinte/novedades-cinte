@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Briefcase, Building2, Calculator, CalendarDays, Scale, UserSearch, Users } from 'lucide-react';
+import { Briefcase, Building2, Calculator, CalendarDays, Scale, Users } from 'lucide-react';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess, userHasConciliacionesAccess } from './comercialAccess';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasOnboardingPanel } from './onboarding/onboardingAccess';
@@ -10,8 +10,7 @@ import { userHasMonitoreoAccess } from './monitoreoAccess';
 import UserAccountMenu from './UserAccountMenu.jsx';
 import { useUiTheme } from './UiThemeContext.jsx';
 import { ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';
-import { CONCILIACIONES_MODULE_ENABLED, ATRACCION_TALENTO_MODULE_ENABLED } from './featureFlags.js';
-import { userHasAtraccionTalentoAccess } from './sourcing/atraccionAccess';
+import { CONCILIACIONES_MODULE_ENABLED } from './featureFlags.js';
 import { userHasReubicacionesAccess } from './reubicacionesAccess';
 
 function resolveWelcomeName(auth) {
@@ -121,24 +120,6 @@ function cardVisuals(key) {
                 cta: 'text-[#2F7BB8]'
             }
         },
-        atraccion: {
-            dark: {
-                shell: 'border border-emerald-400/14 bg-gradient-to-br from-emerald-900/20 via-[#0a2538]/20 to-[#04141E]/28 shadow-[0_8px_36px_-10px_rgba(0,0,0,0.35)] hover:border-emerald-400/30 hover:shadow-[0_14px_48px_-8px_rgba(16,185,129,0.22)]',
-                bar: 'bg-emerald-600/90',
-                iconWrap: 'border border-emerald-400/25 bg-emerald-900/20 text-emerald-200 backdrop-blur-md',
-                title: 'text-white drop-shadow-[0_1px_10px_rgba(0,0,0,0.55)] group-hover:text-emerald-200',
-                desc: 'text-slate-100/88 drop-shadow-[0_1px_6px_rgba(0,0,0,0.45)]',
-                cta: 'text-emerald-200 drop-shadow-[0_1px_6px_rgba(0,0,0,0.4)]'
-            },
-            light: {
-                shell: 'border border-emerald-200/45 bg-gradient-to-br from-white/28 via-emerald-50/22 to-teal-50/24 shadow-[0_8px_36px_-12px_rgba(16,185,129,0.12)] hover:border-emerald-300/55 hover:shadow-[0_14px_44px_-10px_rgba(16,185,129,0.16)]',
-                bar: 'bg-emerald-600',
-                iconWrap: 'border border-emerald-300/45 bg-emerald-100/45 text-emerald-800 backdrop-blur-md',
-                title: 'text-slate-900 group-hover:text-emerald-700',
-                desc: 'text-slate-700/92',
-                cta: 'text-emerald-700'
-            }
-        },
     };
     return map[key] || map.novedades;
 }
@@ -205,15 +186,6 @@ export default function AdminPortalHome({ auth, onLogout }) {
                 description: 'Mallas de turnos, reubicaciones y monitoreo.',
                 path: '/admin/directorio',
                 Icon: Building2
-            });
-        }
-        if (ATRACCION_TALENTO_MODULE_ENABLED && userHasAtraccionTalentoAccess(auth)) {
-            out.push({
-                key: 'atraccion',
-                title: 'Atracción de Talento',
-                description: 'Búsqueda de candidatos, scoring con IA y preselección para procesos de reclutamiento.',
-                path: '/admin/atraccion-talento/vacante',
-                Icon: UserSearch
             });
         }
         return out;

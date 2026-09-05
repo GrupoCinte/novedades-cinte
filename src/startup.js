@@ -5,7 +5,6 @@ const {
     shutdownContratacionRealtime
 } = require('./contratacion/initContratacionRealtime');
 const { ensureOnboardingSchema } = require('./onboarding/onboardingSchema');
-const { ensureSourcingSchema } = require('./sourcing/sourcingSchema');
 
 function logCognitoConfig(deps) {
     const { COGNITO_ENABLED, COGNITO_REGION, COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_SECRET } = deps;
@@ -167,7 +166,6 @@ async function startServer(deps) {
     await safeInit(() => ensureOnboardingSchema({ pool, logger }), null, 'onboarding_schema');
     const { ensureContratoVencimientoColumns } = require('./onboarding/contratoVencimientoService');
     await safeInit(() => ensureContratoVencimientoColumns(pool, logger), null, 'contrato_vencimiento_columns');
-    await safeInit(() => ensureSourcingSchema({ pool, logger }), null, 'sourcing_schema');
 
     const server = app.listen(PORT, () => {
         logStartupConfig(deps);
