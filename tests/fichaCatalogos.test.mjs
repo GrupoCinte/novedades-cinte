@@ -23,7 +23,34 @@ describe('fichaCatalogos AUT-315', () => {
     });
 
     it('campos que salen de la ficha', () => {
-        assert.deepEqual(FICHA_HIDDEN_KEYS, ['estado_catalogo', 'segundo_idioma', 'modalidad_adicional']);
+        assert.deepEqual(FICHA_HIDDEN_KEYS, [
+            'estado_catalogo',
+            'segundo_idioma',
+            'modalidad_adicional',
+            'controller_staff',
+            'email_gerente_servicio',
+            'ejecucion_horario_no_habil',
+            'direccion_proyecto',
+            'politica_viaticos',
+            'seguimiento_pp',
+            'desempeno_ed_servicio',
+            'dia_familia',
+            'ficha_extension_proyecto',
+            'contacto_focal_1_nombre',
+            'contacto_focal_1_cargo',
+            'contacto_focal_1_movil',
+            'contacto_focal_1_email',
+            'contacto_focal_2_nombre',
+            'contacto_focal_2_cargo',
+            'contacto_focal_2_movil',
+            'contacto_focal_2_email',
+            'contacto_admin_nombre',
+            'contacto_admin_cargo',
+            'contacto_admin_movil',
+            'contacto_admin_email',
+            'primer_contacto_familiar',
+            'segundo_contacto_familiar'
+        ]);
         assert.equal(FICHA_SECCION_INDICADORES, 'Indicadores y costos');
     });
 

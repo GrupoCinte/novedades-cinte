@@ -10,6 +10,8 @@ import {
 } from './admin/directorioFilters.js';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
 import { currencyNarrowSymbol, formatMoneyAmountOnly } from './multiCurrencyMoney.js';
+import { ReubicacionesDetalleModal } from './ReubicacionesDetalleModal.jsx';
+import ReubicacionesHistorialGlobal from './ReubicacionesHistorialGlobal.jsx';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
@@ -41,51 +43,41 @@ function formatTarifaDisplay(row) {
     return `${formatMoneyAmountOnly(num, ccy)}\u00A0${currencyNarrowSymbol(ccy)}`;
 }
 
-/** API devuelve Verde | Amarillo | Rojo | Vencido — etiquetas e iconos para UI. */
-function SemaforoBadge({ code, isLight }) {
-    const s = String(code || '');
-    if (s === 'Verde') {
+/** Componente visual para estado de reubicaciones HU-05 */
+export function EstadoBadge({ estado, dias_transcurridos, isLight }) {
+    const s = String(estado || '');
+    if (s === 'Pendiente') {
         return (
             <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
                     isLight ? 'bg-emerald-100 text-emerald-900' : 'bg-emerald-900/45 text-emerald-100'
                 }`}
             >
-                Proyectado
+                Pendiente
             </span>
         );
     }
-    if (s === 'Amarillo') {
+    if (s === 'En proceso') {
+        const diaStr = (dias_transcurridos != null && dias_transcurridos >= 0) ? ` · día ${dias_transcurridos}` : '';
         return (
             <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
                     isLight ? 'bg-amber-100 text-amber-950' : 'bg-amber-900/45 text-amber-100'
                 }`}
             >
-                En riesgo
+                {`En proceso${diaStr}`}
                 <AlertTriangle className={isLight ? 'h-3 w-3 shrink-0 text-amber-700' : 'h-3 w-3 shrink-0 text-amber-200'} aria-hidden />
             </span>
         );
     }
-    if (s === 'Rojo') {
+    if (s === 'Con novedad') {
         return (
             <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
                     isLight ? 'bg-red-200/95 text-red-950' : 'bg-red-950/50 text-red-100'
                 }`}
             >
-                Urgente
-            </span>
-        );
-    }
-    if (s === 'Vencido') {
-        return (
-            <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                    isLight ? 'bg-red-700 text-white' : 'bg-red-700 text-white'
-                }`}
-            >
-                Vencido
+                Con novedad
                 <AlertTriangle className="h-3 w-3 shrink-0 text-red-100" aria-hidden />
             </span>
         );
@@ -97,15 +89,15 @@ function SemaforoBadge({ code, isLight }) {
     );
 }
 
-const SEMAFORO_CODES = ['Verde', 'Amarillo', 'Rojo', 'Vencido'];
-const SEMAFORO_LABELS = { Verde: 'Proyectado', Amarillo: 'En riesgo', Rojo: 'Urgente', Vencido: 'Vencido' };
+const ESTADO_CODES = ['Pendiente', 'En proceso', 'Con novedad'];
+const ESTADO_LABELS = { 'Pendiente': 'Pendiente', 'En proceso': 'En proceso', 'Con novedad': 'Con novedad' };
 
 function emptyForm() {
     return { cedula: '', fecha_fin: '', cliente_destino: '', causal: '' };
 }
 
 /**
- * @typedef {{ seq: number, reset?: boolean, fechaFinDesde?: string, fechaFinHasta?: string, semaforo?: string }} PipelineNavIntent
+ * @typedef {{ seq: number, reset?: boolean, fechaFinDesde?: string, fechaFinHasta?: string, estado?: string }} PipelineNavIntent
  */
 
 export default function ReubicacionesPipelinePage(props) {
@@ -135,9 +127,12 @@ class ReubicacionesPipelineErrorBoundary extends Component {
     }
 }
 
-function ReubicacionesPipelinePageInner({ token, navIntent }) {
+function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
     const { isLight, field, labelMuted, headingAccent } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
+    
+    
+    
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
 
     const [items, setItems] = useState([]);
@@ -151,8 +146,17 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
 
     const [fechaFinDesde, setFechaFinDesde] = useState('');
     const [fechaFinHasta, setFechaFinHasta] = useState('');
-    /** '' = todos; valor API: Verde | Amarillo | Rojo | Vencido */
-    const [semaforoFiltro, setSemaforoFiltro] = useState('');
+    const [estadoFiltro, setEstadoFiltro] = useState('');
+    const [viewMode, setViewMode] = useState('reubicados');
+    const [aptoFiltro, setAptoFiltro] = useState('');
+    const [tipoEventoFiltro, setTipoEventoFiltro] = useState('');
+    const [actorFiltro, setActorFiltro] = useState('');
+    const [appliedFechaFinDesde, setAppliedFechaFinDesde] = useState('');
+    const [appliedFechaFinHasta, setAppliedFechaFinHasta] = useState('');
+    const [appliedEstadoFiltro, setAppliedEstadoFiltro] = useState('');
+    const [appliedAptoFiltro, setAppliedAptoFiltro] = useState('');
+    const [appliedTipoEventoFiltro, setAppliedTipoEventoFiltro] = useState('');
+    const [appliedActorFiltro, setAppliedActorFiltro] = useState('');
 
     const [sort, setSort] = useState({ key: null, dir: 'asc' });
 
@@ -164,6 +168,9 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
     const [editRow, setEditRow] = useState(null);
     const [editForm, setEditForm] = useState(emptyForm);
     const [editSaving, setEditSaving] = useState(false);
+
+    const [detailOpen, setDetailOpen] = useState(false);
+    const [detailRow, setDetailRow] = useState(null);
 
     const [confirmDeleteRow, setConfirmDeleteRow] = useState(null);
 
@@ -213,10 +220,13 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                 q: appliedQ,
                 fechaFinDesde,
                 fechaFinHasta,
-                semaforo: semaforoFiltro,
+                estado: estadoFiltro,
+                aptoNoApto: aptoFiltro,
+                tipoEvento: tipoEventoFiltro,
+                actor: actorFiltro,
                 pageSize
             }),
-        [appliedQ, fechaFinDesde, fechaFinHasta, semaforoFiltro, pageSize]
+        [appliedQ, fechaFinDesde, fechaFinHasta, estadoFiltro, aptoFiltro, tipoEventoFiltro, actorFiltro, pageSize]
     );
 
     const clearFilters = useCallback(() => {
@@ -224,16 +234,31 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
         setAppliedQ(REUBICACIONES_FILTER_DEFAULTS.q);
         setFechaFinDesde(REUBICACIONES_FILTER_DEFAULTS.fechaFinDesde);
         setFechaFinHasta(REUBICACIONES_FILTER_DEFAULTS.fechaFinHasta);
-        setSemaforoFiltro(REUBICACIONES_FILTER_DEFAULTS.semaforo);
+        setEstadoFiltro(REUBICACIONES_FILTER_DEFAULTS.estado);
+        setAppliedFechaFinDesde(REUBICACIONES_FILTER_DEFAULTS.fechaFinDesde);
+        setAppliedFechaFinHasta(REUBICACIONES_FILTER_DEFAULTS.fechaFinHasta);
+        setAppliedEstadoFiltro(REUBICACIONES_FILTER_DEFAULTS.estado);
+        setAptoFiltro('');
+        setAppliedAptoFiltro('');
+        setTipoEventoFiltro('');
+        setAppliedTipoEventoFiltro('');
+        setActorFiltro('');
+        setAppliedActorFiltro('');
         setPageSize(REUBICACIONES_FILTER_DEFAULTS.pageSize);
         setPage(1);
     }, []);
 
     const applyDrawerFilters = useCallback(() => {
         setAppliedQ(q);
+        setAppliedFechaFinDesde(fechaFinDesde);
+        setAppliedFechaFinHasta(fechaFinHasta);
+        setAppliedEstadoFiltro(estadoFiltro);
+        setAppliedAptoFiltro(aptoFiltro);
+        setAppliedTipoEventoFiltro(tipoEventoFiltro);
+        setAppliedActorFiltro(actorFiltro);
         setPage(1);
         setFiltersPanelOpen(false);
-    }, [q]);
+    }, [q, fechaFinDesde, fechaFinHasta, estadoFiltro, aptoFiltro, tipoEventoFiltro, actorFiltro]);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -244,9 +269,10 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
             });
             const qq = String(appliedQ || '').trim();
             if (qq) u.set('q', qq);
-            if (fechaFinDesde) u.set('fecha_fin_desde', fechaFinDesde);
-            if (fechaFinHasta) u.set('fecha_fin_hasta', fechaFinHasta);
-            if (semaforoFiltro) u.set('semaforo', semaforoFiltro);
+            if (appliedFechaFinDesde) u.set('fecha_fin_desde', appliedFechaFinDesde);
+            if (appliedFechaFinHasta) u.set('fecha_fin_hasta', appliedFechaFinHasta);
+            if (appliedEstadoFiltro) u.set('estado', appliedEstadoFiltro);
+            if (appliedAptoFiltro) u.set('apto_no_apto', appliedAptoFiltro);
             if (sort.key) {
                 u.set('sort', sort.key);
                 u.set('dir', sort.dir);
@@ -266,11 +292,11 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
         } finally {
             setLoading(false);
         }
-    }, [token, pageSize, offset, appliedQ, fechaFinDesde, fechaFinHasta, semaforoFiltro, sort]);
+    }, [token, pageSize, offset, appliedQ, appliedFechaFinDesde, appliedFechaFinHasta, appliedEstadoFiltro, appliedAptoFiltro, sort, viewMode]);
 
     useEffect(() => {
-        load();
-    }, [load]);
+        if (viewMode === 'reubicados') load();
+    }, [load, viewMode]);
 
     /** Aplicar filtros enviados desde el dashboard (u otro módulo) al cambiar `seq`. */
     useEffect(() => {
@@ -279,7 +305,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
         if (navIntent?.reset) {
             setFechaFinDesde('');
             setFechaFinHasta('');
-            setSemaforoFiltro('');
+            setEstadoFiltro('');
             setAppliedQ('');
             setQ('');
             setPage(1);
@@ -287,7 +313,10 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
         }
         setFechaFinDesde(navIntent?.fechaFinDesde != null ? String(navIntent.fechaFinDesde) : '');
         setFechaFinHasta(navIntent?.fechaFinHasta != null ? String(navIntent.fechaFinHasta) : '');
-        setSemaforoFiltro(navIntent?.semaforo != null ? String(navIntent.semaforo) : '');
+        setEstadoFiltro(navIntent?.estado != null ? String(navIntent.estado) : '');
+        setAppliedFechaFinDesde(navIntent?.fechaFinDesde != null ? String(navIntent.fechaFinDesde) : '');
+        setAppliedFechaFinHasta(navIntent?.fechaFinHasta != null ? String(navIntent.fechaFinHasta) : '');
+        setAppliedEstadoFiltro(navIntent?.estado != null ? String(navIntent.estado) : '');
         setPage(1);
     }, [navIntent?.seq]);
 
@@ -322,6 +351,11 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
         } finally {
             setCreateSaving(false);
         }
+    };
+
+    const openDetail = (row) => {
+        setDetailRow(row);
+        setDetailOpen(true);
     };
 
     const openEdit = (row) => {
@@ -416,16 +450,39 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                 panelId="reubicaciones-filtros-panel"
                 dash={dash}
             >
-                <button type="button" onClick={() => setCreateOpen(true)} className={dash.toolbarBtn}>
-                    <span className="inline-flex items-center gap-2">
-                        <Plus size={16} /> Nuevo registro
-                    </span>
-                </button>
-                <button type="button" onClick={load} className={dash.compactBtn}>
-                    Refrescar
-                </button>
+                <div className="flex items-center gap-1 rounded-md border border-slate-200 p-1 dark:border-slate-700">
+                    <button
+                        type="button"
+                        onClick={() => { setViewMode('reubicados'); setPage(1); }}
+                        className={`rounded px-3 py-1.5 text-xs font-semibold ${viewMode === 'reubicados' ? 'bg-[#2F7BB8] text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+                    >
+                        Reubicados
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => { setViewMode('historico'); setPage(1); }}
+                        className={`rounded px-3 py-1.5 text-xs font-semibold ${viewMode === 'historico' ? 'bg-[#2F7BB8] text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+                    >
+                        Histórico
+                    </button>
+                </div>
             </ModuleFiltersToolbar>
 
+            {viewMode === 'historico' ? (
+                <div className={`${dash.cardFlex} min-h-0 flex-1`}>
+                    <ReubicacionesHistorialGlobal
+                        token={token}
+                        auth={auth}
+                        searchQuery={appliedQ}
+                        filterApto={appliedAptoFiltro}
+                        estadoFiltro={appliedEstadoFiltro}
+                        fechaFinDesde={appliedFechaFinDesde}
+                        fechaFinHasta={appliedFechaFinHasta}
+                        tipoEvento={appliedTipoEventoFiltro}
+                        actor={appliedActorFiltro}
+                    />
+                </div>
+            ) : (
             <div className={`${dash.cardFlex} min-h-0 flex-1`}>
                 <div className={dash.tableWrap}>
                     <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
@@ -437,67 +494,44 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                                     <Th colKey="tipo_contrato" label="Tipo contrato" />
                                     <Th colKey="cliente_actual" label="Cliente actual" />
                                     <Th colKey="cliente_destino" label="Cliente destino" />
-                                    <Th colKey="causal" label="Causal" />
                                     <Th colKey="fecha_fin" label="Fecha fin" />
-                                    <Th colKey="dias_restantes" label="Días rest." align="right" />
-                                    <Th colKey="semaforo" label="Semáforo" />
+                                    <Th colKey="estado" label="Estado" />
+                                    <Th colKey="causal" label="Causal" />
                                     <Th colKey="tarifa" label="Tarifa actual" />
-                                    <th className="p-4 pr-6 font-semibold whitespace-nowrap">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody className={dash.tbody}>
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={11} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                        <td colSpan={10} className={`p-12 text-center font-medium ${dash.muted}`}>
                                             Cargando…
                                         </td>
                                     </tr>
                                 ) : items.length === 0 ? (
                                     <tr>
-                                        <td colSpan={11} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                        <td colSpan={10} className={`p-12 text-center font-medium ${dash.muted}`}>
                                             Sin registros. Cree uno con «Nuevo registro» (la cédula debe existir en Consultores).
                                         </td>
                                     </tr>
                                 ) : (
                                     items.map((row) => (
-                                        <tr key={row.id} className={dash.trHover}>
+                                        <tr key={row.id} className={`${dash.trHover} cursor-pointer`} onClick={() => openDetail(row)}>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cedula}</td>
-                                            <td className={dash.tdName}>{row.consultor || '—'}</td>
-                                            <td className={dash.tdCell}>{row.tipo_contrato || '—'}</td>
-                                            <td className={dash.tdCell}>{row.cliente_actual || '—'}</td>
-                                            <td className={dash.tdCell}>{row.cliente_destino || '—'}</td>
-                                            <td className={dash.tdCell} title={row.causal || ''}>
-                                                {row.causal || '—'}
-                                            </td>
+                                            <td className={`${dash.tdName} whitespace-nowrap`}>{row.consultor || '—'}</td>
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>{row.tipo_contrato || '—'}</td>
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cliente_actual || '—'}</td>
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cliente_destino || '—'}</td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>
                                                 {String(row.fecha_fin || '').slice(0, 10)}
                                             </td>
-                                            <td className={`${dash.tdMuted} text-right whitespace-nowrap`}>
-                                                {row.dias_restantes != null ? row.dias_restantes : '—'}
-                                            </td>
                                             <td className="p-4 whitespace-nowrap">
-                                                <SemaforoBadge code={row.semaforo} isLight={isLight} />
+                                                <EstadoBadge estado={row.estado} dias_transcurridos={row.dias_transcurridos} isLight={isLight} />
+                                            </td>
+                                            <td className={dash.tdCell} title={row.motivo || row.causal || ''}>
+                                                {row.motivo || row.causal || '—'}
                                             </td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>
                                                 {formatTarifaDisplay(row)}
-                                            </td>
-                                            <td className="p-4 pr-6 whitespace-nowrap">
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        type="button"
-                                                        className={`inline-flex items-center gap-1 ${headingAccent} hover:underline`}
-                                                        onClick={() => openEdit(row)}
-                                                    >
-                                                        <Pencil size={14} /> Editar
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        className="inline-flex items-center gap-1 text-red-400 hover:text-red-300 hover:underline"
-                                                        onClick={() => setConfirmDeleteRow(row)}
-                                                    >
-                                                        <Trash2 size={14} /> Eliminar
-                                                    </button>
-                                                </div>
                                             </td>
                                         </tr>
                                     ))
@@ -532,6 +566,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                     ) : null}
                 </div>
             </div>
+            )}
 
             <ModuleFiltersDrawer
                 open={filtersPanelOpen}
@@ -581,24 +616,77 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                     />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                    <label htmlFor="reubicaciones-drawer-semaforo" className={dash.filtrosDrawerLabel}>
-                        Semáforo
+                    <label htmlFor="reubicaciones-drawer-estado" className={dash.filtrosDrawerLabel}>
+                        Estado
                     </label>
                     <select
-                        id="reubicaciones-drawer-semaforo"
+                        id="reubicaciones-drawer-estado"
                         className={`${field} w-full text-sm`}
-                        value={semaforoFiltro}
-                        onChange={(e) => setSemaforoFiltro(e.target.value)}
+                        value={estadoFiltro}
+                        onChange={(e) => setEstadoFiltro(e.target.value)}
                     >
                         <option value="">Todos</option>
-                        <option value="Amarillo,Rojo,Vencido">En riesgo (amarillo + urgente + vencido)</option>
-                        {SEMAFORO_CODES.map((code) => (
+                        {ESTADO_CODES.map((code) => (
                             <option key={code} value={code}>
-                                {SEMAFORO_LABELS[code]}
+                                {ESTADO_LABELS[code]}
                             </option>
                         ))}
                     </select>
                 </div>
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="reubicaciones-drawer-apto" className={dash.filtrosDrawerLabel}>
+                        Decisión
+                    </label>
+                    <select
+                        id="reubicaciones-drawer-apto"
+                        className={`${field} w-full text-sm`}
+                        value={aptoFiltro}
+                        onChange={(e) => setAptoFiltro(e.target.value)}
+                    >
+                        <option value="">Todas</option>
+                        <option value="APTO">APTO</option>
+                        <option value="NO_APTO">NO APTO</option>
+                        <option value="SIN_DECISION">SIN DECISIÓN</option>
+                    </select>
+                </div>
+                {viewMode === 'historico' ? (
+                    <>
+                        <div className="flex flex-col gap-1.5">
+                            <label htmlFor="reubicaciones-drawer-tipo-evento" className={dash.filtrosDrawerLabel}>
+                                Tipo de evento
+                            </label>
+                            <select
+                                id="reubicaciones-drawer-tipo-evento"
+                                className={`${field} w-full text-sm`}
+                                value={tipoEventoFiltro}
+                                onChange={(e) => setTipoEventoFiltro(e.target.value)}
+                            >
+                                <option value="">Todos</option>
+                                <option value="ficha_recibida">Ficha recibida</option>
+                                <option value="ficha_actualizada">Ficha actualizada</option>
+                                <option value="cambio_estado">Cambio de estado</option>
+                                <option value="modificacion_manual">Edición manual</option>
+                                <option value="observacion_agregada">Observación</option>
+                                <option value="decision_agregada">Decisión</option>
+                                <option value="reubicacion">Reubicación</option>
+                                <option value="salida">Salida</option>
+                                <option value="transicion_automatica">Transición automática</option>
+                            </select>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <label htmlFor="reubicaciones-drawer-actor" className={dash.filtrosDrawerLabel}>
+                                Actor
+                            </label>
+                            <input
+                                id="reubicaciones-drawer-actor"
+                                className={`${field} w-full text-sm`}
+                                value={actorFiltro}
+                                onChange={(e) => setActorFiltro(e.target.value)}
+                                placeholder="Nombre del actor"
+                            />
+                        </div>
+                    </>
+                ) : null}
                 <div className="flex flex-col gap-1.5">
                     <label htmlFor="reubicaciones-drawer-pagesize" className={dash.filtrosDrawerLabel}>
                         Mostrar por página
@@ -677,15 +765,8 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
 
             {editOpen && editRow ? (
                 <div className={modalShell}>
-                    <div
-                        className={`relative w-full max-w-lg rounded-2xl border p-6 shadow-xl ${
-                            isLight ? 'border-slate-200 bg-white' : 'border-[var(--border)] bg-[var(--surface)]'
-                        }`}
-                    >
+                    <div className={`relative w-full max-w-lg rounded-2xl border p-6 shadow-xl ${isLight ? 'border-slate-200 bg-white' : 'border-[var(--border)] bg-[var(--surface)]'}`}>
                         <h2 className={`text-lg font-heading font-bold mb-4 ${headingAccent}`}>Editar seguimiento</h2>
-                        <p className={`text-xs ${labelMuted} mb-3`}>
-                            Cédula {editForm.cedula} · {editRow.consultor || 'Consultor'}
-                        </p>
                         <form onSubmit={submitEdit} className="space-y-3">
                             <div>
                                 <label className={`block text-xs ${labelMuted} mb-1`}>Fecha fin *</label>
@@ -715,14 +796,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                                 />
                             </div>
                             <div className="flex justify-end gap-2 pt-2">
-                                <button
-                                    type="button"
-                                    className={dash.compactBtn}
-                                    onClick={() => {
-                                        setEditOpen(false);
-                                        setEditRow(null);
-                                    }}
-                                >
+                                <button type="button" className={dash.compactBtn} onClick={() => { setEditOpen(false); setEditRow(null); }}>
                                     Cancelar
                                 </button>
                                 <button type="submit" disabled={editSaving} className={toolbarBtn}>
@@ -732,6 +806,31 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                         </form>
                     </div>
                 </div>
+            ) : null}
+
+            {detailOpen && detailRow ? (
+                <ReubicacionesDetalleModal
+                    isOpen={detailOpen}
+                    onClose={() => {
+                        setDetailOpen(false);
+                        setDetailRow(null);
+                    }}
+                    row={detailRow}
+                    token={token}
+                    auth={auth}
+                    onUpdateInline={(field, value) => {
+                        setDetailRow(prev => prev ? { ...prev, [field]: value } : prev);
+                        load();
+                    }}
+                    onEdit={(row) => {
+                        setDetailOpen(false);
+                        openEdit(row);
+                    }}
+                    onDelete={(row) => {
+                        setDetailOpen(false);
+                        setConfirmDeleteRow(row);
+                    }}
+                />
             ) : null}
 
             {confirmDeleteRow ? (

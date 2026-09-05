@@ -28,6 +28,7 @@ import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasOnboardingPanel } from './onboarding/onboardingAccess';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess, userHasConciliacionesAccess } from './comercialAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
+import { userHasReubicacionesAccess } from './reubicacionesAccess';
 import { userHasMallasAccess } from './mallasAccess';
 import { userHasMonitoreoAccess } from './monitoreoAccess';
 import { cognitoSignOut } from './cognitoAuth';
@@ -424,7 +425,7 @@ function App() {
             element={(
               <ProtectedRoute auth={auth}>
                 {(() => {
-                  return userHasMallasAccess(auth) || userHasDirectorioPanel(auth) || userHasMonitoreoAccess(auth) ? (
+                  return userHasMallasAccess(auth) || userHasDirectorioPanel(auth) || userHasMonitoreoAccess(auth) || userHasReubicacionesAccess(auth) ? (
                     <DirectorioClienteColaboradorModule token={auth?.token || ''} auth={auth} onLogout={handleLogout} />
                   ) : (
                     <Navigate to="/admin" replace />

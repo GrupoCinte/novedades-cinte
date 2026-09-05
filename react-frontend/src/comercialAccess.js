@@ -21,11 +21,12 @@ const POLICY_PANELS_BY_ROLE = {
     gp: ['gestion', 'conciliaciones'],
     nomina: ['dashboard', 'calendar', 'gestion', 'conciliaciones'],
     analista_conciliaciones: ['conciliaciones'],
+    atraccion_talento: ['atraccion', 'reubicaciones'],
     /** Entra consultor: sin paneles admin (docs/RBAC_MATRIX.md). */
     consultor: []
 };
 
-function normalizePayload(authOrToken) {
+export function normalizePayload(authOrToken) {
     if (authOrToken && typeof authOrToken === 'object') {
         const raw = authOrToken;
         if (raw.user && typeof raw.user === 'object') {

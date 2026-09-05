@@ -11,6 +11,7 @@ import UserAccountMenu from './UserAccountMenu.jsx';
 import { useUiTheme } from './UiThemeContext.jsx';
 import { ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';
 import { CONCILIACIONES_MODULE_ENABLED } from './featureFlags.js';
+import { userHasReubicacionesAccess } from './reubicacionesAccess';
 
 function resolveWelcomeName(auth) {
     const u = auth?.user && typeof auth.user === 'object' ? auth.user : {};
@@ -178,11 +179,11 @@ export default function AdminPortalHome({ auth, onLogout }) {
                 path: '/admin/directorio?v=dashboard',
                 Icon: Building2
             });
-        } else if (userIsGpMallasOnly(auth) || (userHasMallasAccess(auth) && !userHasDirectorioPanel(auth))) {
+        } else if (userIsGpMallasOnly(auth) || (userHasMallasAccess(auth) && !userHasDirectorioPanel(auth)) || userHasReubicacionesAccess(auth)) {
             out.push({
                 key: 'directorio',
                 title: 'Módulo de administración',
-                description: 'Mallas de turnos y monitoreo de actividades de tus clientes asignados.',
+                description: 'Mallas de turnos, reubicaciones y monitoreo.',
                 path: '/admin/directorio',
                 Icon: Building2
             });
